@@ -4,7 +4,9 @@ import os
 import shutil
 import json
 # from OSB_Gilder.back.account_rows import BalanceSheet, process_excel
-from OSB_Gilder.back.combined_script import BalanceSheet, process_excel
+# from OSB_Gilder.back.combined_script import BalanceSheet, process_excel
+from OSB_Gilder.back.account_rows import BalanceSheet
+from OSB_Gilder.back.main import OSBGilder
 
 
 class IndicatorSelectorWindow:
@@ -428,7 +430,8 @@ class GUI:
             )
             return
 
-        process_excel(self.input_file_path)
+        gilder = OSBGilder(self.input_file_path)
+        gilder.main()
         self.output_file_path = self.input_file_path
 
         self.status_label.config(
