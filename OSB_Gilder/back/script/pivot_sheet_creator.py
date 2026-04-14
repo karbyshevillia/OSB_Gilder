@@ -1,4 +1,5 @@
 from .utils import *
+from ..account_rows import BalanceSheet
 
 class PivotSheetCreator:
     def __init__(self, index_sheet_creator):
@@ -9,7 +10,8 @@ class PivotSheetCreator:
         self.pivot_sheet = self.create_pivot_sheet()
 
     def create_pivot_sheet(self): #pivot_sheet_creator
-        pivot_sheet = self.workbook.create_sheet("Pivot_Data")
+        index_position = self.workbook.sheetnames.index("Indicator_Summary") if "Indicator_Summary" in self.workbook.sheetnames else 0
+        pivot_sheet = self.workbook.create_sheet("Pivot_Data", index=index_position + 1)
         df = pd.concat([bs.pivot_db for bs in self.sheets_dict.values()])
         for row in dataframe_to_rows(df, index=False, header=True):
             pivot_sheet.append(row)

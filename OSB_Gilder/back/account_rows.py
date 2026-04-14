@@ -3,6 +3,7 @@ from openpyxl.utils import column_index_from_string, get_column_letter
 from openpyxl.cell.cell import Cell
 import pandas as pd
 from .indicators_eval import Indicator, IndicatorKind, LogicalIndicator
+from .script.utils import STATE_BANKS, FOREIGN_BANKS
 
 import re
 
@@ -455,6 +456,16 @@ class BalanceSheet:
         number_str = match.group(1) if match else ""
         text_part = self.sheet.title[match.end():].strip() if match else self.sheet.title
 
+        def _bank_class(bank_name):
+            b_name = bank_name.lower()
+            if b_name in STATE_BANKS:
+                return "Державний"
+            elif b_name in FOREIGN_BANKS:
+                return "Іноземний капітал"
+            else:
+                return "Приватний капітал"
+
+        pivot_db.insert(0, "bank_class", _bank_class(text_part), True)
         pivot_db.insert(0, "bank_name", text_part, True)
         pivot_db.insert(0, "bank_code", number_str, True)
 

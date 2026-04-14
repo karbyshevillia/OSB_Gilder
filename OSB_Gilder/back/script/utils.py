@@ -31,7 +31,7 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.utils.dataframe import dataframe_to_rows
 import pandas as pd
 
-from ..account_rows import BalanceSheet
+# from ..account_rows import BalanceSheet
 
 # Ensure UTF-8 encoding for Cyrillic characters
 if sys.stdout.encoding != 'utf-8':
@@ -93,3 +93,42 @@ def is_valid_sheet_name(sheet_name):
     """Check if a sheet name matches the required pattern (starts with a number)."""
     pattern = r'^\s*\d+'
     return re.match(pattern, sheet_name) is not None
+
+def _normalize_name(name):
+    if name is None:
+        return ""
+    return re.sub(r"\s+", " ", str(name)).strip().lower()
+
+STATE_BANKS = {
+    _normalize_name('АТ "Укрексімбанк"'),
+    _normalize_name('АТ "ОЩАДБАНК"'),
+    _normalize_name('АТ КБ "ПриватБанк"'),
+    _normalize_name('АТ "СЕНС БАНК"'),
+    _normalize_name('АБ "УКРГАЗБАНК"'),
+    _normalize_name('АТ "ПЕРШИЙ ІНВЕСТИЦІЙНИЙ БАНК"'),
+    _normalize_name('АТ "МОТОР-БАНК"')
+}
+
+FOREIGN_BANKS = {
+    _normalize_name('АТ "Райффайзен Банк"'),
+    _normalize_name('АТ АКБ "Львів" '),
+    _normalize_name('АТ "СКАЙ БАНК" '),
+    _normalize_name('АТ "БТА БАНК" '),
+    _normalize_name('АТ "УКРСИББАНК" '),
+    _normalize_name('АТ "Ідея Банк" '),
+    _normalize_name('АТ "ПРАВЕКС БАНК" '),
+    _normalize_name('АТ "КРЕДІ АГРІКОЛЬ БАНК" '),
+    _normalize_name('АТ "ЮНЕКС БАНК" '),
+    _normalize_name('АТ "ПІРЕУС БАНК МКБ" '),
+    _normalize_name('АТ "ІНГ Банк Україна" '),
+    _normalize_name('АТ "ОТП БАНК" '),
+    _normalize_name('АТ "СІТІБАНК" '),
+    _normalize_name('АТ "ПРОКРЕДИТ БАНК" '),
+    _normalize_name('АТ "УБРР"'),
+    _normalize_name('АТ "НЕКСЕНТ БАНК" '),
+    _normalize_name('АТ "КРЕДИТВЕСТ БАНК"'),
+    _normalize_name('АТ "АГРОПРОСПЕРІС БАНК" '),
+    _normalize_name('АТ "Дойче Банк ДБУ"  '),
+    _normalize_name('АТ"СЕБ КОРПОРАТИВНИЙ БАНК"'),
+    _normalize_name('АТ "КРЕДОБАНК"')
+}

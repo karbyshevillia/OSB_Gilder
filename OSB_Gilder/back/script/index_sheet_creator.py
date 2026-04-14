@@ -1,6 +1,7 @@
 from .utils import *
-from .utils import _datalabel_text_style
+from .utils import _datalabel_text_style, _normalize_name
 from .indicator_tables_creator import IndicatorTablesCreator
+from ..account_rows import BalanceSheet
 
 class IndexSheetCreator:
     INDICATOR_CORRESPONDENCE = {
@@ -562,53 +563,14 @@ class IndexSheetCreator:
         self.index_sheet.row_dimensions[total_row].height = 22
 
         # Category totals by fixed bank groups
-        def _normalize_name(name):
-            if name is None:
-                return ""
-            return re.sub(r"\s+", " ", str(name)).strip()
-
-        state_banks = {
-            _normalize_name('АТ "Укрексімбанк"'),
-            _normalize_name('АТ "ОЩАДБАНК"'),
-            _normalize_name('АТ КБ "ПриватБанк"'),
-            _normalize_name('АТ "СЕНС БАНК"'),
-            _normalize_name('АБ "УКРГАЗБАНК"'),
-            _normalize_name('АТ "ПЕРШИЙ ІНВЕСТИЦІЙНИЙ БАНК"'),
-            _normalize_name('АТ "МОТОР-БАНК"')
-        }
-
-        foreign_banks = {
-            _normalize_name('АТ "Райффайзен Банк"'),
-            _normalize_name('АТ АКБ "Львів" '),
-            _normalize_name('АТ "СКАЙ БАНК" '),
-            _normalize_name('АТ "БТА БАНК" '),
-            _normalize_name('АТ "УКРСИББАНК" '),
-            _normalize_name('АТ "Ідея Банк" '),
-            _normalize_name('АТ "ПРАВЕКС БАНК" '),
-            _normalize_name('АТ "КРЕДІ АГРІКОЛЬ БАНК" '),
-            _normalize_name('АТ "ЮНЕКС БАНК" '),
-            _normalize_name('АТ "ПІРЕУС БАНК МКБ" '),
-            _normalize_name('АТ "ІНГ Банк Україна" '),
-            _normalize_name('АТ "ОТП БАНК" '),
-            _normalize_name('АТ "СІТІБАНК" '),
-            _normalize_name('АТ "ПРОКРЕДИТ БАНК" '),
-            _normalize_name('АТ "УБРР"'),
-            _normalize_name('АТ "НЕКСЕНТ БАНК" '),
-            _normalize_name('АТ "КРЕДИТВЕСТ БАНК"'),
-            _normalize_name('АТ "АГРОПРОСПЕРІС БАНК" '),
-            _normalize_name('АТ "Дойче Банк ДБУ"  '),
-            _normalize_name('АТ"СЕБ КОРПОРАТИВНИЙ БАНК"'),
-            _normalize_name('АТ "КРЕДОБАНК"')
-        }
-
         bank_row_by_name = {}
         for row_idx in range(6, self.data_last_row + 1):
             bank_name = _normalize_name(self.index_sheet.cell(row=row_idx, column=3).value)
             if bank_name:
                 bank_row_by_name[bank_name] = row_idx
 
-        state_rows = [row for name, row in bank_row_by_name.items() if name in state_banks]
-        foreign_rows = [row for name, row in bank_row_by_name.items() if name in foreign_banks]
+        state_rows = [row for name, row in bank_row_by_name.items() if name in STATE_BANKS]
+        foreign_rows = [row for name, row in bank_row_by_name.items() if name in FOREIGN_BANKS]
         all_rows = list(bank_row_by_name.values())
 
         state_row = total_row + 1
