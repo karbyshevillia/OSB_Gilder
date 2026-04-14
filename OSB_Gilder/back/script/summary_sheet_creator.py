@@ -1,6 +1,7 @@
 from .utils import *
 from .utils import _datalabel_text_style
 from .index_sheet_creator import IndexSheetCreator
+from ..account_rows import BalanceSheet
 
 class SummarySheetCreator:
     def __init__(self, index_sheet_creator):

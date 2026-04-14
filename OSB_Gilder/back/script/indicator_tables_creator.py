@@ -1,4 +1,5 @@
 from .utils import *
+from ..account_rows import BalanceSheet
 
 class IndicatorTablesCreator:
     def __init__(self, workbook, workbook_data, parent_file):
