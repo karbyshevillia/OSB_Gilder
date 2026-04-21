@@ -5,6 +5,8 @@ from ..account_rows import BalanceSheet
 
 class SummarySheetCreator:
     def __init__(self, index_sheet_creator):
+        print(f"\n=== STAGE 4: Summary Sheet Creation ===")
+        print(f"    Initialising a SummarySheetCreator object")
         self.index_sheet_creator = index_sheet_creator
         self.workbook = self.index_sheet_creator.workbook
         self.workbook_data = self.index_sheet_creator.workbook_data
@@ -13,6 +15,7 @@ class SummarySheetCreator:
         self.data_last_row = self.index_sheet_creator.data_last_row
 
         self.indicator_summary_sheet = self.create_indicator_summary_sheet()
+        print(f"    STAGE 4 COMPLETE")
 
     #summary_sheet_creator
     def create_indicator_summary_sheet(self):
@@ -24,8 +27,6 @@ class SummarySheetCreator:
 
         "Інші процентні доходи" = "ВСЬОГО" - (ДС + ОВДП + бізнес + населення)
         """
-        print("\n=== STEP 6: Creating indicator summary table ===")
-
         summary_sheet_name = "Indicator_Summary"
 
         if summary_sheet_name in self.workbook.sheetnames:
@@ -92,38 +93,38 @@ class SummarySheetCreator:
                     src_sheet_name = match.group(1)
                     src_col = match.group(2)
                     src_row = int(match.group(3))
-                    print(f"ids: {src_col}, {src_row}")
+                    # print(f"ids: {src_col}, {src_row}")
 
-                    print(src_sheet_name, src_sheet_name in self.workbook.sheetnames)
+                    # print(src_sheet_name, src_sheet_name in self.workbook.sheetnames)
                     if src_sheet_name in self.workbook.sheetnames:
                         src_sheet = self.workbook[src_sheet_name]
                         src_raw = src_sheet[f"{src_col}{src_row}"].value
-                        print(f"raw: {src_raw}")
+                        # print(f"raw: {src_raw}")
 
                         # Prefer cached calculated value (data_only workbook)
-                        print(src_sheet_name in self.workbook_data.sheetnames)
+                        # print(src_sheet_name in self.workbook_data.sheetnames)
                         if src_sheet_name in self.workbook_data.sheetnames:
                             src_values_sheet = self.workbook_data[src_sheet_name]
-                            print(src_values_sheet)
+                            # print(src_values_sheet)
                             src_cached = src_values_sheet[f"{src_col}{src_row}"].value
-                            print(f"cached: {src_cached}")
+                            # print(f"cached: {src_cached}")
                             if src_cached is not None:
                                 # print(f"to_float: {_to_float(src_cached)}")
                                 return _to_float(src_cached)
-                            print(f"to_float: {_to_float(src_cached)}")
+                            # print(f"to_float: {_to_float(src_cached)}")
                         return _to_float(src_raw)
                     return 0.0
 
             return _to_float(cell_value)
 
         def indicator_sum_value(header_name):
+            print(f"    Calculating the sum over indicators for {header_name}")
             col_idx = header_to_col_idx.get(header_name)
-            print(header_name, col_idx)
+            # print(header_name, col_idx)
             if col_idx is None:
                 return 0.0
             col = get_column_letter(col_idx)
             total = f"=SUM({self.index_sheet.title}!{col}6:{col}{last_data_row})/1000000"
-
             return total
 
         ds_header = "ПРОЦЕНТИ ЗА ДЕПОЗИТНИМИ СЕРТИФІКАТАМИ (ДС), тис. грн"
@@ -137,6 +138,8 @@ class SummarySheetCreator:
         business_value = indicator_sum_value(business_header)
         population_value = indicator_sum_value(population_header)
         total_value = indicator_sum_value(total_header)
+
+        print(f"    Calculating the sum over indicators for the remainder")
         other_value = (f"={summary_sheet.cell(row=8, column=2).coordinate} - ("
                        f"{summary_sheet.cell(row=3, column=2).coordinate} +"
                        f"{summary_sheet.cell(row=4, column=2).coordinate} +"
@@ -173,15 +176,17 @@ class SummarySheetCreator:
                     cell.alignment = Alignment(horizontal='center', vertical='center')
                     cell.number_format = '0.0'
 
+        print(f"    Summaries filled out for each header")
+
         # Optional last row from sample layout
-        summary_sheet.cell(row=9, column=1).value = "у % до доходів банків"
-        summary_sheet.cell(row=9, column=2).value = ""
-        summary_sheet.cell(row=9, column=3).value = ""
-        for col_idx in range(1, 4):
-            cell = summary_sheet.cell(row=9, column=col_idx)
-            cell.fill = body_fill
-            cell.border = thin_border
-            cell.alignment = Alignment(horizontal='left' if col_idx == 1 else 'center', vertical='center')
+        # summary_sheet.cell(row=9, column=1).value = "у % до доходів банків"
+        # summary_sheet.cell(row=9, column=2).value = ""
+        # summary_sheet.cell(row=9, column=3).value = ""
+        # for col_idx in range(1, 4):
+        #     cell = summary_sheet.cell(row=9, column=col_idx)
+        #     cell.fill = body_fill
+        #     cell.border = thin_border
+        #     cell.alignment = Alignment(horizontal='left' if col_idx == 1 else 'center', vertical='center')
 
         # Emphasize total row
         for col_idx in range(1, 4):
@@ -196,12 +201,15 @@ class SummarySheetCreator:
         summary_sheet.column_dimensions['H'].width = 20
         summary_sheet.row_dimensions[1].height = 22
 
+        print(f"    Summary table configured")
+        print(f"    Creating summary charts")
+
         # Pie chart based on rows 3-7 from Indicator_Summary table
         labels = Reference(summary_sheet, min_col=1, min_row=3, max_row=7)
         data = Reference(summary_sheet, min_col=2, min_row=2, max_row=7)
 
         pie = PieChart()
-        pie.title = "Структура процентних доходів банків\nза 12 міс. 2025 року, %"
+        pie.title = "Структура процентних доходів банків\nза звітний період, %"
         pie.title.txPr = _datalabel_text_style(size_pt=13, bold=True, color="FF0000")
         pie.title.overlay = False
         pie.add_data(data, titles_from_data=True)
@@ -219,6 +227,6 @@ class SummarySheetCreator:
         pie.dataLabels.txPr = _datalabel_text_style(size_pt=10, bold=True, color="000000")
 
         summary_sheet.add_chart(pie, "F1")
+        print(f"    Summary charts created")
 
-        print(f"  ✓ Created '{summary_sheet_name}' in sample layout")
         return summary_sheet

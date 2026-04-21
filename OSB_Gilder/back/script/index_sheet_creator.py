@@ -37,23 +37,28 @@ class IndexSheetCreator:
     }
 
     def __init__(self, indicator_tables_creator):
+        print(f"\n=== STAGE 3: Index Sheet Creation ===")
+        print(f"    Initialising an IndexSheetCreator object")
         self.indicator_tables_creator = indicator_tables_creator
         self.workbook = self.indicator_tables_creator.workbook
         self.workbook_data = self.indicator_tables_creator.workbook_data
         self.parent_file = self.indicator_tables_creator.parent_file
 
-        self.index_sheet = self.create_index_sheet()
-        self.matching_sheets = self.find_matching_sheets()
+        self.index_sheet = self.create_index_sheet() #
+        self.matching_sheets = self.find_matching_sheets() #
         self.sheets_dict = self.indicator_tables_creator.sheets_dict
 
         self.config()
+        print(f"    STAGE 3 COMPLETE")
 
     def config(self):
-        self.format_header()
-        self.add_hyperlinks()
-        self.fill_formulas()
+        print(f"    Performing Index Sheet configuration:")
+        self.format_header() #
+        self.add_hyperlinks() #
+        self.fill_formulas() #
         self.data_last_row = self.index_sheet.max_row
-        self.sum_columns_by_header()
+        self.sum_columns_by_header() #
+        print(f"    Index Sheet configured")
 
     def find_matching_sheets(self):
         matching_sheets = []
@@ -63,6 +68,7 @@ class IndexSheetCreator:
             if is_valid_sheet_name(sheet_name):
                 matching_sheets.append(sheet_name)
         matching_sheets.sort(key=lambda x: (int(re.match(r'^\s*(\d+)', x).group(1)), x))
+        print(f"    Valid sheet names separated")
         return matching_sheets
 
     def create_index_sheet(self): #index_sheet_creator
@@ -77,15 +83,15 @@ class IndexSheetCreator:
         """
         # Check if Index sheet already exists
         if "Index" in self.workbook.sheetnames:
-            print("\n'Index' sheet already exists - removing it...")
+            print(f"    'Index' sheet already exists - removing it...")
             index_sheet = self.workbook["Index"]
             self.workbook.remove(index_sheet)
-            print("  ✓ Existing Index sheet removed")
+            print(f"     ✓ Existing Index sheet removed")
 
         # Create new Index sheet at the beginning
-        print("Creating new Index sheet...")
+        print(f"    Creating new Index sheet...")
         index_sheet = self.workbook.create_sheet("Index", 0)
-        print("  ✓ Index sheet created")
+        print(f"    ✓ Index sheet created")
 
         return index_sheet
 
@@ -93,6 +99,7 @@ class IndexSheetCreator:
         """
         Format the header rows of the Index sheet.
         """
+        print(f"        Formatting Index Sheet headers...")
         # Hide description rows
         for row_id in [1, 2, 3, 4]:
             self.index_sheet.row_dimensions[row_id].hidden = True
@@ -189,7 +196,7 @@ class IndexSheetCreator:
         # Freeze first 4 columns and header row 5
         self.index_sheet.freeze_panes = "E6"
 
-        print("  ✓ Headers formatted")
+        print(f"        ✓ Index Sheet headers formatted")
 
     def add_hyperlinks(self): #index_sheet_creator
         """
@@ -200,7 +207,7 @@ class IndexSheetCreator:
             self.index_sheet: The Index worksheet
             self.matching_sheets: List of sheet names that match the pattern
         """
-        print("\nAdding hyperlinks...")
+        print(f"        Setting up hyperlinks...")
 
         thin_border = Border(
             left=Side(style='thin'),
@@ -271,7 +278,7 @@ class IndexSheetCreator:
         for row in range(6, current_row):
             self.index_sheet.row_dimensions[row].height = 22
 
-        print(f"  ✓ Added {len(self.matching_sheets)} hyperlinks")
+        print(f"        ✓ Hyperlinks set up for all the {len(self.matching_sheets)} valid bank sheets")
 
     def fill_formulas(self): #index_sheet_creator
         """
@@ -279,14 +286,15 @@ class IndexSheetCreator:
 
         This is the core logic from Danya's_code.py
         """
+        print(f"        Filling out Index Sheet formulae:")
         content_sheet = self.workbook["Index"]
 
         ind_cor = IndexSheetCreator.INDICATOR_CORRESPONDENCE
-        print(f"  ✓ Dictionary has {len(ind_cor)} indicators to match")
+        print(f"            Found {len(ind_cor)} indicators to match")
 
         sheet_count = 0
         total_sheets = len(self.sheets_dict)
-        print(f"\n=== STEP 4: Processing {total_sheets} bank sheets ===")
+        print(f"            Processing the {total_sheets} valid bank sheets:")
 
         for codes in self.sheets_dict:
             sheet_count += 1
@@ -298,8 +306,8 @@ class IndexSheetCreator:
             indicator_row = 5
             index_column = 1
             started_row = 6
-            print(f"\n[{sheet_count}/{total_sheets}] Processing: {codes}")
-            print(f"  → Finding bank code {code} in Index sheet...")
+            print(f"                [{sheet_count}/{total_sheets}] Processing: {codes}")
+            print(f"                    → Looking for bank code {code} in the Index Sheet...")
 
             # Find the row in Index sheet that corresponds to this bank
             for row in content_sheet.iter_rows(
@@ -310,10 +318,10 @@ class IndexSheetCreator:
                 cell = row[0]
                 if cell.value != None and int(cell.value) == int(code):
                     main_bank_row = cell.row
-                    print(f"  ✓ Found at row {main_bank_row}")
+                    print(f"                    ✓ Found at row {main_bank_row}")
                     break
 
-            print(f"  → Matching indicators from matrix...")
+            print(f"                    → Matching indicators from matrix...")
 
             # For each indicator in the bank's data
             for row in matrix_base.itertuples():
@@ -324,7 +332,7 @@ class IndexSheetCreator:
                     cell = column[0]
 
                     if ind_cor.get(str(cell.value)) != None and ind_cor.get(str(cell.value))[0] == str(indicator):
-                        print(f"     ✓ Match: {str(cell.value)}")
+                        print(f"                        ✓ Match: {str(cell.value)}")
                         hnp = ind_cor[str(cell.value)][1]
                         cel = row[hnp]
                         row_link = cel.row
@@ -333,9 +341,9 @@ class IndexSheetCreator:
                         cell_link.value = make_formula(name_of_sheet, column_link, row_link)
                         break
 
-            print(f"  ✓ Completed sheet {sheet_count}/{total_sheets}")
+            print(f"                ✓ Formulae filled out for sheet {sheet_count}/{total_sheets}")
 
-        print(f"\n✓ All bank sheets processed!")
+        print(f"            ✓ All formulae filled out!")
 
         # create_pivot_sheet(self.sheets_dict, self.workbook)
 
@@ -345,6 +353,7 @@ class IndexSheetCreator:
         Group rows are also formula-based and only filled for columns
         where row 5 header is not empty.
         """
+        print(f"        Creating the totals rows")
         results = {}
         thin_border = Border(
             left=Side(style='thin'),
@@ -394,7 +403,7 @@ class IndexSheetCreator:
 
             return _to_float(value)
 
-        print("\n=== STEP 5: Calculating column sums ===")
+        print(f"            Calculating the totals for each column")
 
         # Write totals row under all bank rows
         total_row = self.data_last_row + 1
@@ -545,11 +554,11 @@ class IndexSheetCreator:
                 'column': col_letter,
                 'formula': sum_cell.value
             }
-            print(f"  ✓ Column {col_letter}: {header_value}")
-            print(f"    Formula: {sum_cell.value}")
+            print(f"                ✓ Column {col_letter}: {header_value}")
+            print(f"                Formula: {sum_cell.value}")
 
         if not non_empty_header_cols:
-            print("  ⚠ No non-empty headers found from row 5")
+            print(f"            ⚠ No non-empty headers found from row 5")
             return results
 
         last_formula_col = max(non_empty_header_cols)
@@ -632,6 +641,9 @@ class IndexSheetCreator:
 
             self.index_sheet.row_dimensions[out_row].height = 22
 
+        print(f"        Totals rows filled out")
+        print(f"        Creating ancillary tables")
+
         # Additional two formula tables on Index (for middle and right charts)
 
         # Place both small tables under the main table, starting from column B
@@ -693,6 +705,9 @@ class IndexSheetCreator:
         self.index_sheet.column_dimensions[get_column_letter(right_col_name)].width = 38
         self.index_sheet.column_dimensions[get_column_letter(right_col_value)].width = 16
 
+        print(f"        Both ancillary tables created")
+        print(f"        Creating Index Sheet charts")
+
         # Charts under the two small tables (pie on the left, bar on the right)
         middle_cats = Reference(self.index_sheet, min_col=middle_col_name, min_row=table_header_row + 1, max_row=table_header_row + 3)
         middle_vals = Reference(self.index_sheet, min_col=middle_col_value, min_row=table_header_row + 1, max_row=table_header_row + 3)
@@ -738,9 +753,11 @@ class IndexSheetCreator:
         self.index_sheet.add_chart(bar, f"B{chart_top_row}")
         self.index_sheet.add_chart(pie_right, f"H{chart_top_row}")
 
-        print(f"  ✓ Category rows written: {len(category_rows)}")
-        print("  ✓ Added 2 extra source tables on Index")
+        print(f"        Index Sheet charts created")
 
-        print(f"  ✓ Totals written to row {total_row}")
+        # print(f"✓ Category rows written: {len(category_rows)}")
+        # print("  ✓ Added 2 extra source tables on Index")
+        #
+        # print(f"  ✓ Totals written to row {total_row}")
 
         return results

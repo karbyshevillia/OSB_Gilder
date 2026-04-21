@@ -1,465 +1,235 @@
-from tkinter import ttk, Tk, filedialog, messagebox, PhotoImage
+import os, shutil
+from pathlib import Path
 import tkinter as tk
-import os
-import shutil
-import json
-# from OSB_Gilder.back.account_rows import BalanceSheet, process_excel
-# from OSB_Gilder.back.combined_script import BalanceSheet, process_excel
-from OSB_Gilder.back.account_rows import BalanceSheet
+from tkinter import filedialog, PhotoImage
+import customtkinter as ctk
+from tkinterdnd2 import TkinterDnD, DND_FILES
 from OSB_Gilder.back.main import OSBGilder
 
 
-class IndicatorSelectorWindow:
-    """TTK-based selector for BalanceSheet indicators"""
-
-    DEFAULT_CONFIG_FILE = "default_indicators.json"
-
-    def __init__(self, root, parent_gui):
-        self.root = tk.Toplevel(root)
-        self.root.title("Select Indicators and Column")
-        self.root.geometry("650x500")
-        self.root.resizable(True, True)
-        self.parent_gui = parent_gui
-
-        # Store selections per column: {column_name: {indicator_name: bool}}
-        self.selections_per_column = {}
-        self.current_column = None
-        self.load_default_indicators()
-
-        # tk.BooleanVar for each indicator
-        self.vars = {}
-
-        self.setup_ui()
-
-    def setup_ui(self):
-        # Column Selection at Top
-        column_frame = ttk.Frame(self.root)
-        column_frame.pack(fill="x", padx=12, pady=10)
-
-        ttk.Label(column_frame, text="Select Column for Calculation:", font=("Segoe UI", 11, "bold")).pack(side="left",
-                                                                                                           padx=5)
-
-        self.column_var = tk.StringVar(value=self.current_column or BalanceSheet.LOGICAL_COLUMNS[0])
-        column_dropdown = ttk.Combobox(
-            column_frame,
-            textvariable=self.column_var,
-            values=BalanceSheet.LOGICAL_COLUMNS,
-            state="readonly",
-            width=25
-        )
-        column_dropdown.pack(side="left", padx=5)
-        column_dropdown.bind("<<ComboboxSelected>>", self.on_column_changed)
-
-        # Separator
-        ttk.Separator(self.root, orient="horizontal").pack(fill="x", pady=5)
-
-        # Header for indicators
-        header = ttk.Label(self.root, text="Select Indicators", font=("Segoe UI", 15, "bold"), padding=10)
-        header.pack(fill="x", padx=12, pady=(10, 6))
-
-        # Bottom buttons - TESTING: placed ABOVE indicators
-        btn_frame = ttk.Frame(self.root, padding=10, relief="solid", borderwidth=2)
-        btn_frame.pack(fill="x", padx=12, pady=10)
-
-        ttk.Button(btn_frame, text="Вибрати всі", command=self.select_all).pack(side="left", padx=4)
-        ttk.Button(btn_frame, text="Видалити всі", command=self.clear_all).pack(side="left", padx=4)
-        ttk.Button(btn_frame, text="Зберегти", command=self.save_default_indicators).pack(side="left", padx=4)
-        ttk.Button(btn_frame, text="Закрити", command=self.on_close).pack(side="right", padx=4)
-
-        # Scrollable frame for indicators
-        frame = ttk.Frame(self.root, padding=10, height=300)
-        frame.pack(fill="x", expand=True, padx=12, pady=6)
-        frame.pack_propagate(False)  # Prevent frame from shrinking to fit content
-
-        canvas = tk.Canvas(frame, borderwidth=0, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=canvas.yview)
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        scrollable = ttk.Frame(canvas)
-
-        scrollable.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-
-        canvas.create_window((0, 0), window=scrollable, anchor="nw")
-
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-
-        # Create a ttk.Checkbutton for each indicator
-        self.checks = {}
-        for indicator in BalanceSheet.INDICATORS:
-            name = indicator.name
-            var = tk.BooleanVar(value=False)
-            chk = ttk.Checkbutton(scrollable, text=name, variable=var, padding=8)
-            chk.pack(fill="x", padx=8, pady=4, anchor="w")
-            self.vars[name] = var
-            self.checks[name] = chk
-
-        # Load initial column selections
-        self.current_column = self.column_var.get()
-        self.load_column_selections()
-
-    def on_column_changed(self, event=None):
-        """Called when user changes the column selection"""
-        # Save current selections before switching
-        self.save_current_column_selections()
-
-        # Update current column
-        self.current_column = self.column_var.get()
-
-        # Load selections for new column
-        self.load_column_selections()
-
-    def save_current_column_selections(self):
-        """Save current indicator selections for the current column"""
-        if self.current_column:
-            self.selections_per_column[self.current_column] = {
-                name: var.get() for name, var in self.vars.items()
-            }
-
-    def load_column_selections(self):
-        """Load indicator selections for the current column"""
-        if self.current_column in self.selections_per_column:
-            # Restore saved selections
-            for name, var in self.vars.items():
-                var.set(self.selections_per_column[self.current_column].get(name, False))
-        else:
-            # Clear all selections for new column
-            for var in self.vars.values():
-                var.set(False)
-
-    def select_all(self):
-        for name, var in self.vars.items():
-            var.set(True)
-
-    def clear_all(self):
-        for name, var in self.vars.items():
-            var.set(False)
-
-    def save_default_indicators(self):
-        # Save current column selections first
-        self.save_current_column_selections()
-
-        try:
-            with open(self.DEFAULT_CONFIG_FILE, "w", encoding="utf-8") as f:
-                json.dump(self.selections_per_column, f, ensure_ascii=False, indent=2)
-
-            # Count total selections across all columns
-            total_count = sum(
-                sum(1 for selected in column_data.values() if selected)
-                for column_data in self.selections_per_column.values()
-            )
-            messagebox.showinfo("Saved",
-                                f"Saved selections for {len(self.selections_per_column)} column(s) with {total_count} total indicator(s).")
-        except Exception as e:
-            messagebox.showerror("Error", f"Could not save defaults: {e}")
-
-    def load_default_indicators(self):
-        if os.path.exists(self.DEFAULT_CONFIG_FILE):
-            try:
-                with open(self.DEFAULT_CONFIG_FILE, "r", encoding="utf-8") as f:
-                    self.selections_per_column = json.load(f)
-                    # Set current column to first available or first in list
-                    if self.selections_per_column:
-                        self.current_column = list(self.selections_per_column.keys())[0]
-                    else:
-                        self.current_column = BalanceSheet.LOGICAL_COLUMNS[0]
-            except Exception:
-                self.selections_per_column = {}
-                self.current_column = BalanceSheet.LOGICAL_COLUMNS[0]
-        else:
-            self.selections_per_column = {}
-            self.current_column = BalanceSheet.LOGICAL_COLUMNS[0]
-
-    def get_selected_indicators(self):
-        """Returns dict of {column: [indicator_names]}"""
-        return {
-            column: [name for name, selected in indicators.items() if selected]
-            for column, indicators in self.selections_per_column.items()
-        }
-
-    def on_close(self):
-        # Save current selections before closing
-        self.save_current_column_selections()
-
-        # refresh parent status and close
-        if self.parent_gui:
-            self.parent_gui.update_indicators_status()
-        self.root.destroy()
+class CTkWithDnD(ctk.CTk, TkinterDnD.DnDWrapper):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.TkdndVersion = TkinterDnD._require(self)
 
 
-class GUI:
-    def __init__(self, root):
-        self.root = root
+class GilderUI(CTkWithDnD):
+    def __init__(self):
+        super().__init__()
+
+        # Window Setup: Increased height to 720 to give the bottom elements room to breathe
+        self.title("OSB Gilder")
+        self.geometry("750x720")
+        self.configure(fg_color="#F7F9FC")
+        self.resizable(False, False)
+
+        # Variables
+        self.processing_mode = ctk.StringVar(value="amend")
+        self.selected_file_path = None
+
+        # Build UI Components
+        self._build_header()
+        self._build_dropzone()
+        self._build_options()
+        self._build_footer()
+
+        # Miscellany
         icon_path = os.path.join(os.path.dirname(__file__), "icon.png")
-        self.root.iconphoto(True, PhotoImage(file=icon_path))
-        self.root.title("OSB Analyzer")
-        self.root.configure(bg="#bdbdbd")
-        self.root.resizable(False, False)
+        self.iconphoto(True, PhotoImage(file=icon_path))
 
-        self.style = ttk.Style()
-        self.style.theme_use("default")
+    def _build_header(self):
+        header_frame = ctk.CTkFrame(self, fg_color="transparent")
+        header_frame.pack(pady=(40, 20), fill="x")
 
-        FONT = ("Segoe UI", 11)
-        TITLE_FONT = ("Segoe UI", 15, "bold")
+        logo_label = ctk.CTkLabel(header_frame, text="📗", font=("Arial", 40), text_color="#2A9D6A")
+        logo_label.pack()
 
-        self.style.configure("App.TFrame", background="#bdbdbd")
-        self.style.configure("Card.TFrame", background="white")
+        title_label = ctk.CTkLabel(header_frame, text="OSB Gilder",
+                                   font=("Segoe UI", 28, "bold"), text_color="#1E293B")
+        title_label.pack(pady=(5, 0))
 
-        self.style.configure(
-            "Title.TLabel",
-            background="#bdbdbd",
-            font=TITLE_FONT,
-            foreground="#1f2937"
+        subtitle_label = ctk.CTkLabel(header_frame, text="Обробка та модифікація ОСЗ НБУ",
+                                      font=("Segoe UI", 14), text_color="#64748B")
+        subtitle_label.pack()
+
+    def _build_dropzone(self):
+        self.drop_frame = ctk.CTkFrame(self, fg_color="white",
+                                       border_color="#D2D6DC", border_width=2, corner_radius=15,
+                                       cursor="hand2")
+        self.drop_frame.pack(pady=20, padx=80, fill="both", expand=True)
+
+        self.inner_frame = ctk.CTkFrame(self.drop_frame, fg_color="transparent", cursor="hand2")
+        self.inner_frame.place(relx=0.5, rely=0.5, anchor="center")
+
+        self.cloud_icon = ctk.CTkLabel(self.inner_frame, text="☁️", font=("Arial", 50),
+                                       text_color="#94A3B8", cursor="hand2")
+        self.cloud_icon.pack(pady=(0, 10))
+
+        self.drag_text = ctk.CTkLabel(self.inner_frame, text="Перетягніть сюди .xlsx файл для обробки",
+                                      font=("Segoe UI", 18), text_color="#1E293B", cursor="hand2")
+        self.drag_text.pack()
+
+        self.browse_text = ctk.CTkLabel(self.inner_frame, text="або натисніть для пошуку",
+                                        font=("Segoe UI", 14), text_color="#2563EB", cursor="hand2")
+        self.browse_text.pack(pady=(5, 0))
+
+        clickable_elements = [self.drop_frame, self.inner_frame, self.cloud_icon,
+                              self.drag_text, self.browse_text]
+
+        for element in clickable_elements:
+            element.bind("<Button-1>", self._browse_files)
+            element.bind("<Enter>", self._highlight_dropzone)
+            element.bind("<Leave>", self._unhighlight_dropzone)
+            element.drop_target_register(DND_FILES)
+            element.dnd_bind('<<Drop>>', self._handle_file_drop)
+            element.dnd_bind('<<DragEnter>>', self._highlight_dropzone)
+            element.dnd_bind('<<DragLeave>>', self._unhighlight_dropzone)
+
+    def _build_options(self):
+        options_container = ctk.CTkFrame(self, fg_color="transparent")
+        options_container.pack(pady=(10, 20), padx=80, fill="x")
+
+        choose_label = ctk.CTkLabel(options_container, text="Оберіть спосіб обробки:",
+                                    font=("Segoe UI", 14, "bold"), text_color="#1E293B")
+        choose_label.pack(pady=(0, 15))
+
+        cards_frame = ctk.CTkFrame(options_container, fg_color="transparent")
+        cards_frame.pack(fill="x")
+
+        cards_frame.grid_columnconfigure((0, 1), weight=1, uniform="row")
+
+        self.amend_card = self._create_option_card(
+            cards_frame, "amend", "✏️", "Оригінал", "Робити зміни в оригінальному файлі", 0, pad_x=(0, 10)
+        )
+        self.copy_card = self._create_option_card(
+            cards_frame, "copy", "📄", "Копія", "Робити зміни в окремому файлі-копії", 1, pad_x=(10, 0)
         )
 
-        self.style.configure(
-            "CardText.TLabel",
-            background="white",
-            font=FONT,
-            foreground="#374151"
-        )
+        self._update_card_styles()
 
-        self.style.configure(
-            "Primary.TButton",
-            font=FONT,
-            padding=10,
-            background="#2563eb",
-            foreground="white"
-        )
-        self.style.map(
-            "Primary.TButton",
-            background=[("active", "#1d4ed8")]
-        )
+    def _create_option_card(self, parent, value, icon, title, subtitle, col, pad_x):
+        card = ctk.CTkFrame(parent, fg_color="white", border_color="#E2E8F0",
+                            border_width=1, corner_radius=8, cursor="hand2")
+        card.grid(row=0, column=col, padx=pad_x, sticky="ew")
+        card.bind("<Button-1>", lambda e, v=value: self._select_option(v))
+        card.grid_columnconfigure(2, weight=1)
 
-        self.style.configure(
-            "Success.TButton",
-            font=FONT,
-            padding=10,
-            background="#16a34a",
-            foreground="white"
-        )
-        self.style.map(
-            "Success.TButton",
-            background=[("active", "#15803d")]
-        )
+        rb = ctk.CTkRadioButton(card, text="", variable=self.processing_mode, value=value,
+                                width=20, fg_color="#2A9D6A", border_color="#94A3B8",
+                                command=self._update_card_styles)
+        rb.grid(row=0, column=0, padx=(15, 10), pady=20)
+        rb.bind("<Button-1>", lambda e, v=value: self._select_option(v))
 
-        self.style.configure(
-            "Secondary.TButton",
-            font=FONT,
-            padding=10
-        )
+        icon_label = ctk.CTkLabel(card, text=icon, font=("Arial", 20))
+        icon_label.grid(row=0, column=1, padx=(0, 10))
+        icon_label.bind("<Button-1>", lambda e, v=value: self._select_option(v))
 
-        self.input_file_path = None  # шлях до вхідного Excel
-        self.output_file_path = None  # шлях до результату (створюється в іншому файлі)
+        text_frame = ctk.CTkFrame(card, fg_color="transparent")
+        text_frame.grid(row=0, column=2, sticky="w", pady=15)
+        text_frame.bind("<Button-1>", lambda e, v=value: self._select_option(v))
 
-    def open_indicator_selector(self):
-        """Open the indicator selector window"""
-        IndicatorSelectorWindow(self.root, self)
+        title_lbl = ctk.CTkLabel(text_frame, text=title, font=("Segoe UI", 14, "bold"), text_color="#1E293B")
+        title_lbl.pack(anchor="w")
+        title_lbl.bind("<Button-1>", lambda e, v=value: self._select_option(v))
 
-    def update_indicators_status(self):
-        """Update the indicators status label"""
-        config_file = IndicatorSelectorWindow.DEFAULT_CONFIG_FILE
-        if os.path.exists(config_file):
-            try:
-                with open(config_file, "r", encoding="utf-8") as f:
-                    config_data = json.load(f)
+        sub_lbl = ctk.CTkLabel(text_frame, text=subtitle, font=("Segoe UI", 12), text_color="#64748B",
+                               wraplength=180, justify="left")
+        sub_lbl.pack(anchor="w")
+        sub_lbl.bind("<Button-1>", lambda e, v=value: self._select_option(v))
 
-                    # Count total selections across all columns
-                    total_count = 0
-                    column_count = 0
-                    for column, indicators in config_data.items():
-                        if isinstance(indicators, dict):
-                            selected = sum(1 for v in indicators.values() if v)
-                            if selected > 0:
-                                total_count += selected
-                                column_count += 1
+        return card
 
-                    if total_count > 0:
-                        self.indicators_status_label.config(
-                            text=f"Вибрано: {column_count} колонок, {total_count} індикаторів"
-                        )
-                    else:
-                        self.indicators_status_label.config(
-                            text="Індикатори не вибрано"
-                        )
-            except Exception as e:
-                print(f"Error reading indicators: {e}")
-                self.indicators_status_label.config(
-                    text="Індикатори не вибрано"
-                )
+    def _select_option(self, value):
+        self.processing_mode.set(value)
+        self._update_card_styles()
+
+    def _update_card_styles(self):
+        self.amend_card.configure(border_color="#E2E8F0", border_width=1)
+        self.copy_card.configure(border_color="#E2E8F0", border_width=1)
+        if self.processing_mode.get() == "amend":
+            self.amend_card.configure(border_color="#2A9D6A", border_width=1)
         else:
-            self.indicators_status_label.config(
-                text="Індикатори не вибрано"
-            )
+            self.copy_card.configure(border_color="#2A9D6A", border_width=1)
 
-    def center_window(self, width, height):
-        screen_w = self.root.winfo_screenwidth()
-        screen_h = self.root.winfo_screenheight()
+    def _build_footer(self):
+        footer_frame = ctk.CTkFrame(self, fg_color="transparent")
+        # Reduced the bottom padding from 40 to 20 to preserve layout balance
+        footer_frame.pack(pady=(10, 20), fill="x")
 
-        x = (screen_w - width) // 2
-        y = (screen_h - height) // 2
+        # Set an unmistakably large height of 75 so you can see it working
+        process_btn = ctk.CTkButton(footer_frame, text="⚙️ Обробити",
+                                    font=("Segoe UI", 20, "bold"),
+                                    fg_color="#2A9D6A", hover_color="#218056",
+                                    width=300, height=50, corner_radius=8,
+                                    command=self._process_file)
 
-        self.root.geometry(f"{width}x{height}+{x}+{y}")
+        process_btn.pack(pady=10)
 
-    def run(self):
-        self.center_window(760, 550)
+    def _highlight_dropzone(self, event=None):
+        self.drop_frame.configure(fg_color="#F1F5F9")
 
-        container = ttk.Frame(self.root, style="App.TFrame")
-        container.pack(fill="both", expand=True, padx=30, pady=25)
+    def _unhighlight_dropzone(self, event=None):
+        try:
+            x, y = self.winfo_pointerx(), self.winfo_pointery()
+            x1 = self.drop_frame.winfo_rootx()
+            y1 = self.drop_frame.winfo_rooty()
+            x2 = x1 + self.drop_frame.winfo_width()
+            y2 = y1 + self.drop_frame.winfo_height()
 
-        ttk.Label(container, text="Файл", style="Title.TLabel").pack(anchor="w")
+            if not (x1 <= x <= x2 and y1 <= y <= y2):
+                self.drop_frame.configure(fg_color="white")
+        except:
+            self.drop_frame.configure(fg_color="white")
 
-        input_card = ttk.Frame(container, style="Card.TFrame")
-        input_card.pack(fill="x", pady=12)
-
-        input_inner = ttk.Frame(input_card, style="Card.TFrame")
-        input_inner.pack(fill="x", padx=24, pady=24)
-
-        ttk.Button(
-            input_inner,
-            text="Завантажити файл",
-            style="Secondary.TButton",
-            command=self.load_file,
-            width=25
-        ).pack(side="left")
-
-        ttk.Button(
-            input_inner,
-            text="Опрацювати",
-            style="Primary.TButton",
-            command=self.process_file,
-            width=16
-        ).pack(side="right")
-
-        # Indicators Section
-        ttk.Label(container, text="Індикатори", style="Title.TLabel").pack(anchor="w", pady=(25, 0))
-
-        indicators_card = ttk.Frame(container, style="Card.TFrame")
-        indicators_card.pack(fill="x", pady=12)
-
-        indicators_inner = ttk.Frame(indicators_card, style="Card.TFrame")
-        indicators_inner.pack(fill="x", padx=24, pady=24)
-
-        ttk.Button(
-            indicators_inner,
-            text="Вибрати індикатори",
-            style="Secondary.TButton",
-            command=self.open_indicator_selector,
-            width=25
-        ).pack(side="left")
-
-        self.indicators_status_label = ttk.Label(
-            indicators_inner,
-            text="Індикатори не вибрано",
-            style="CardText.TLabel"
-        )
-        self.indicators_status_label.pack(side="right")
-
-        # Update status on startup
-        self.update_indicators_status()
-
-        ttk.Label(container, text="Вихід", style="Title.TLabel").pack(anchor="w", pady=(25, 0))
-
-        output_card = ttk.Frame(container, style="Card.TFrame")
-        output_card.pack(fill="x", pady=12)
-
-        output_inner = ttk.Frame(output_card, style="Card.TFrame")
-        output_inner.pack(fill="x", padx=24, pady=24)
-
-        self.status_label = ttk.Label(
-            output_inner,
-            text="Файл ще не завантажено",
-            style="CardText.TLabel"
-        )
-        self.status_label.pack(side="left")
-
-        ttk.Button(
-            output_inner,
-            text="Завантажити",
-            style="Success.TButton",
-            command=self.save_result,
-            width=16
-        ).pack(side="right")
-
-        self.root.mainloop()
-
-    def load_file(self):
-        """Вибір ВХІДНОГО Excel-файлу"""
-
+    def _browse_files(self, event=None):
         file_path = filedialog.askopenfilename(
-            title="Оберіть Excel файл",
-            filetypes=[("Excel файли", "*.xlsx")]
+            title="Оберіть файл Excel",
+            filetypes=[("Excel Files", "*.xlsx *.xls")]
         )
+        if file_path:
+            self._update_ui_with_file(file_path)
 
-        if not file_path:
+    def _handle_file_drop(self, event):
+        self.drop_frame.configure(fg_color="white")
+        file_path = event.data.strip('{}')
+
+        if file_path.lower().endswith(('.xlsx', '.xls')):
+            self._update_ui_with_file(file_path)
+        else:
+            self.drag_text.configure(text="Цей тип файлу не підтримується. Будь ласка оберіть файл Excel.", text_color="red")
+
+    def _update_ui_with_file(self, file_path):
+        self.selected_file_path = file_path
+        filename = os.path.basename(file_path)
+
+        self.cloud_icon.configure(text="✅", text_color="#2A9D6A")
+        self.drag_text.configure(text=f"Завантажено: {filename}", text_color="#1E293B", font=("Segoe UI", 16, "bold"))
+        self.browse_text.configure(text="Натисніть, щоб обрати інший файл.")
+        self.drop_frame.configure(border_color="#2A9D6A")
+
+    def _process_file(self):
+        if not self.selected_file_path:
+            self.drag_text.configure(text="⚠️ Будь ласка, спершу оберіть файл!", text_color="#EAB308")
             return
 
-        if not file_path.lower().endswith(".xlsx"):
-            messagebox.showerror(
-                "Помилка",
-                "Дозволено лише Excel файли (.xlsx)"
+        mode = self.processing_mode.get()
+        if mode == "amend":
+            processor = OSBGilder(self.selected_file_path)
+            processor.main()
+        elif mode == "copy":
+            file_path = filedialog.asksaveasfilename(
+                title="Оберіть назву обробленого файлу",
+                defaultextension=".xlsx",
+                filetypes=[("Excel Files", "*.xlsx *.xls")],
+                initialfile=Path(self.selected_file_path).stem + "_modified"
             )
-            return
+            shutil.copyfile(self.selected_file_path, file_path)
+            processor = OSBGilder(file_path)
+            processor.main()
 
-        self.input_file_path = file_path
-        self.status_label.config(
-            text=f"Завантажено файл: {os.path.basename(file_path)}"
-        )
-
-    def process_file(self):
-        """
-
-        Цей метод НЕ містить реальної логіки.
-        Тут потрібно:
-        - викликати функцію з іншого файлу (наприклад processor.py)
-        - передати шлях до input_file_path
-        - отримати шлях до створеного Excel-файлу
-        - записати його в self.output_file_path
-
-        from processor import process_excel
-        self.output_file_path = process_excel(self.input_file_path)
-        """
-
-        if not self.input_file_path:
-            messagebox.showwarning(
-                "Файл не вибрано",
-                "Спочатку завантажте Excel файл."
-            )
-            return
-
-        gilder = OSBGilder(self.input_file_path)
-        gilder.main()
-        self.output_file_path = self.input_file_path
-
-        self.status_label.config(
-            text="Файл опрацьовано (очікується створення результату)"
-        )
-
-    def save_result(self):
-        """Збереження РЕЗУЛЬТАТУ через Save As"""
-
-        if not self.output_file_path or not os.path.exists(self.output_file_path):
-            messagebox.showwarning(
-                "Немає результату",
-                "Результат ще не створено."
-            )
-            return
-
-        save_path = filedialog.asksaveasfilename(
-            title="Зберегти файл як",
-            defaultextension=".xlsx",
-            initialfile="OSB_Result.xlsx",
-            filetypes=[("Excel файли", "*.xlsx")]
-        )
-
-        if save_path:
-            shutil.copyfile(self.output_file_path, save_path)
+        print(f"Виконується обробка файлу '{self.selected_file_path}' у режимі '{mode}'.")
 
 
 if __name__ == "__main__":
-    root = Tk()
-    app = GUI(root)
-    app.run()
+    app = GilderUI()
+    app.mainloop()

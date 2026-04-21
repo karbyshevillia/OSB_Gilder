@@ -10,6 +10,10 @@ readme = "README.md"
 python = "^3.11"
 openpyxl = "^3.1.5"
 pandas = "^3.0.2"
+tkinterdnd2 = "^0.4.3"
+ttkbootstrap = "^1.20.2"
+customtkinter = "^5.2.2"
+pathlib = "^1.0.1"
 
 
 [build-system]
