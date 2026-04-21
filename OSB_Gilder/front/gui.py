@@ -17,9 +17,9 @@ class GilderUI(CTkWithDnD):
     def __init__(self):
         super().__init__()
 
-        # Window Setup: Increased height to 720 to give the bottom elements room to breathe
+        # Window Setup: Increased height slightly to accommodate the progress bar safely
         self.title("OSB Gilder")
-        self.geometry("750x720")
+        self.geometry("750x750")
         self.configure(fg_color="#F7F9FC")
         self.resizable(False, False)
 
@@ -156,6 +156,23 @@ class GilderUI(CTkWithDnD):
         # Reduced the bottom padding from 40 to 20 to preserve layout balance
         footer_frame.pack(pady=(10, 20), fill="x")
 
+        # --- Cosmetic Progress Bar ---
+        self.progress_var = ctk.DoubleVar(value=0.0)
+        self.progress_bar = ctk.CTkProgressBar(footer_frame, variable=self.progress_var, width=300, height=10,
+                                               progress_color="#2A9D6A", fg_color="#E2E8F0")
+        self.progress_bar.set(0)
+        self.progress_bar.pack(pady=(0, 5))
+
+        self.status_var = ctk.StringVar(value="0%")
+        self.status_label = ctk.CTkLabel(footer_frame,
+                                         # text="0%",
+                                         font=("Segoe UI", 12, "bold"),
+                                         text_color="#64748B",
+                                         textvariable=self.status_var)
+        self.status_label.pack(pady=(0, 10))
+
+        self.progress_var.trace_add("write", lambda *args: self.status_var.set(f"{int(self.progress_var.get() * 100)}%"))
+
         # Set an unmistakably large height of 75 so you can see it working
         process_btn = ctk.CTkButton(footer_frame, text="⚙️ Обробити",
                                     font=("Segoe UI", 20, "bold"),
@@ -196,7 +213,8 @@ class GilderUI(CTkWithDnD):
         if file_path.lower().endswith(('.xlsx', '.xls')):
             self._update_ui_with_file(file_path)
         else:
-            self.drag_text.configure(text="Цей тип файлу не підтримується. Будь ласка оберіть файл Excel.", text_color="red")
+            self.drag_text.configure(text="Цей тип файлу не підтримується. Будь ласка оберіть файл Excel.",
+                                     text_color="red")
 
     def _update_ui_with_file(self, file_path):
         self.selected_file_path = file_path
@@ -214,8 +232,8 @@ class GilderUI(CTkWithDnD):
 
         mode = self.processing_mode.get()
         if mode == "amend":
-            processor = OSBGilder(self.selected_file_path)
-            processor.main()
+            processor = OSBGilder(self.selected_file_path, self.progress_var)
+            processor.start()
         elif mode == "copy":
             file_path = filedialog.asksaveasfilename(
                 title="Оберіть назву обробленого файлу",
@@ -224,8 +242,8 @@ class GilderUI(CTkWithDnD):
                 initialfile=Path(self.selected_file_path).stem + "_modified"
             )
             shutil.copyfile(self.selected_file_path, file_path)
-            processor = OSBGilder(file_path)
-            processor.main()
+            processor = OSBGilder(file_path, self.progress_var)
+            processor.start()
 
         print(f"Виконується обробка файлу '{self.selected_file_path}' у режимі '{mode}'.")
 
