@@ -25,7 +25,7 @@ class OSBGilder(Thread):
         print(f"    Loading workbook from {self.parent_file}")
 
         self.wb = utils.xl.load_workbook(self.parent_file)
-        self.update_progress(20)
+        self.update_progress(15)
 
         print(f"    Loading read-only workbook from {self.parent_file}")
 
@@ -35,22 +35,25 @@ class OSBGilder(Thread):
         print(f"    STAGE 1 COMPLETE")
         print(f"\nStarting workbook modification")
 
-        self.indicator_tables_creator = IndicatorTablesCreator(self.wb, self.wb_data, self.parent_file)
-        self.update_progress(30)
+        self.indicator_tables_creator = IndicatorTablesCreator(self.wb,
+                                                               self.wb_data,
+                                                               self.parent_file,
+                                                               self.progress_var)
+        # self.update_progress(30)
 
         self.index_sheet_creator = IndexSheetCreator(self.indicator_tables_creator)
-        self.update_progress(10)
+        # self.update_progress(10)
 
         self.summary_sheet_creator = SummarySheetCreator(self.index_sheet_creator)
-        self.update_progress(10)
+        # self.update_progress(10)
 
         self.pivot_sheet_creator = PivotSheetCreator(self.index_sheet_creator)
-        self.update_progress(10)
+        # self.update_progress(10)
 
         print(f"\nWorkbook modification complete")
 
         self.wb.save(self.parent_file)
-        self.update_progress(10)
+        self.update_progress(5)
 
         print(f"Modified workbook saved as {self.parent_file}")
 

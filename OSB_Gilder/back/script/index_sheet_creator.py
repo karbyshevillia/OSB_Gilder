@@ -2,6 +2,7 @@ from .utils import *
 from .utils import _datalabel_text_style, _normalize_name
 from .indicator_tables_creator import IndicatorTablesCreator
 from ..account_rows import BalanceSheet
+import time
 
 class IndexSheetCreator:
     INDICATOR_CORRESPONDENCE = {
@@ -43,6 +44,9 @@ class IndexSheetCreator:
         self.workbook = self.indicator_tables_creator.workbook
         self.workbook_data = self.indicator_tables_creator.workbook_data
         self.parent_file = self.indicator_tables_creator.parent_file
+        self.progress_var = self.indicator_tables_creator.progress_var
+        self.delay = 0.01
+        self.percentage = 5
 
         self.index_sheet = self.create_index_sheet() #
         self.matching_sheets = self.find_matching_sheets() #
@@ -51,13 +55,21 @@ class IndexSheetCreator:
         self.config()
         print(f"    STAGE 3 COMPLETE")
 
+    def update_progress(self, value):
+        current = self.progress_var.get()
+        new = current + value / 100.0
+        self.progress_var.set(new)
+        time.sleep(self.delay)
+
     def config(self):
+        increment_percent = self.percentage / 4
+
         print(f"    Performing Index Sheet configuration:")
-        self.format_header() #
-        self.add_hyperlinks() #
-        self.fill_formulas() #
+        self.format_header(); self.update_progress(increment_percent)
+        self.add_hyperlinks(); self.update_progress(increment_percent)
+        self.fill_formulas(); self.update_progress(increment_percent)
         self.data_last_row = self.index_sheet.max_row
-        self.sum_columns_by_header() #
+        self.sum_columns_by_header(); self.update_progress(increment_percent)
         print(f"    Index Sheet configured")
 
     def find_matching_sheets(self):

@@ -163,7 +163,7 @@ class GilderUI(CTkWithDnD):
         self.progress_bar.set(0)
         self.progress_bar.pack(pady=(0, 5))
 
-        self.status_var = ctk.StringVar(value="0%")
+        self.status_var = ctk.StringVar(value="0.0%")
         self.status_label = ctk.CTkLabel(footer_frame,
                                          # text="0%",
                                          font=("Segoe UI", 12, "bold"),
@@ -171,7 +171,7 @@ class GilderUI(CTkWithDnD):
                                          textvariable=self.status_var)
         self.status_label.pack(pady=(0, 10))
 
-        self.progress_var.trace_add("write", lambda *args: self.status_var.set(f"{int(self.progress_var.get() * 100)}%"))
+        self.progress_var.trace_add("write", lambda *args: self.status_var.set(f"{(self.progress_var.get() * 100):.1f}%"))
 
         # Set an unmistakably large height of 75 so you can see it working
         process_btn = ctk.CTkButton(footer_frame, text="⚙️ Обробити",
@@ -229,7 +229,7 @@ class GilderUI(CTkWithDnD):
         if not self.selected_file_path:
             self.drag_text.configure(text="⚠️ Будь ласка, спершу оберіть файл!", text_color="#EAB308")
             return
-
+        self.progress_var.set(0.0)
         mode = self.processing_mode.get()
         if mode == "amend":
             processor = OSBGilder(self.selected_file_path, self.progress_var)

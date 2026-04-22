@@ -2,6 +2,7 @@ from .utils import *
 from .utils import _datalabel_text_style
 from .index_sheet_creator import IndexSheetCreator
 from ..account_rows import BalanceSheet
+import time
 
 class SummarySheetCreator:
     def __init__(self, index_sheet_creator):
@@ -13,9 +14,18 @@ class SummarySheetCreator:
         self.indicator_correspondence = IndexSheetCreator.INDICATOR_CORRESPONDENCE
         self.index_sheet = self.index_sheet_creator.index_sheet
         self.data_last_row = self.index_sheet_creator.data_last_row
+        self.progress_var = self.index_sheet_creator.progress_var
+        self.delay = 0.01
+        self.percentage = 5
 
         self.indicator_summary_sheet = self.create_indicator_summary_sheet()
         print(f"    STAGE 4 COMPLETE")
+
+    def update_progress(self, value):
+        current = self.progress_var.get()
+        new = current + value / 100.0
+        self.progress_var.set(new)
+        time.sleep(self.delay)
 
     #summary_sheet_creator
     def create_indicator_summary_sheet(self):
@@ -27,6 +37,8 @@ class SummarySheetCreator:
 
         "Інші процентні доходи" = "ВСЬОГО" - (ДС + ОВДП + бізнес + населення)
         """
+        increment_percent = self.percentage / 3
+
         summary_sheet_name = "Indicator_Summary"
 
         if summary_sheet_name in self.workbook.sheetnames:
@@ -177,6 +189,7 @@ class SummarySheetCreator:
                     cell.number_format = '0.0'
 
         print(f"    Summaries filled out for each header")
+        self.update_progress(increment_percent)
 
         # Optional last row from sample layout
         # summary_sheet.cell(row=9, column=1).value = "у % до доходів банків"
@@ -202,6 +215,7 @@ class SummarySheetCreator:
         summary_sheet.row_dimensions[1].height = 22
 
         print(f"    Summary table configured")
+        self.update_progress(increment_percent)
         print(f"    Creating summary charts")
 
         # Pie chart based on rows 3-7 from Indicator_Summary table
@@ -228,5 +242,6 @@ class SummarySheetCreator:
 
         summary_sheet.add_chart(pie, "F1")
         print(f"    Summary charts created")
+        self.update_progress(increment_percent)
 
         return summary_sheet
