@@ -1,7 +1,7 @@
 import os, shutil
 from pathlib import Path
 import tkinter as tk
-from tkinter import filedialog, PhotoImage
+from tkinter import filedialog, PhotoImage, messagebox
 import customtkinter as ctk
 from tkinterdnd2 import TkinterDnD, DND_FILES
 from OSB_Gilder.back.main import OSBGilder
@@ -27,6 +27,13 @@ class GilderUI(CTkWithDnD):
         self.processing_mode = ctk.StringVar(value="amend")
         self.selected_file_path = None
 
+        # Spinner Variables
+        self.spinner_frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+        self.spinner_idle = '—'
+        self.spinner_done = '✓'
+        self.spinner_idx = 0
+        self.is_spinning = False
+
         # Build UI Components
         self._build_header()
         self._build_dropzone()
@@ -36,6 +43,9 @@ class GilderUI(CTkWithDnD):
         # Miscellany
         icon_path = os.path.join(os.path.dirname(__file__), "icon.png")
         self.iconphoto(True, PhotoImage(file=icon_path))
+
+        # # Processor variable
+        # self.processor = None
 
     def _build_header(self):
         header_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -151,6 +161,17 @@ class GilderUI(CTkWithDnD):
         else:
             self.copy_card.configure(border_color="#2A9D6A", border_width=1)
 
+    def _on_progress_update(self, *args):
+        # 1. Get the current progress
+        current_progress = self.progress_var.get()
+
+        # 2. Update your status label (replacing your lambda)
+        self.status_var.set(f"{(current_progress * 100):.1f}%")
+
+        # 3. Stop the spinner if we hit 100% (1.0)
+        if current_progress >= 1.0:
+            self.stop_spinner()
+
     def _build_footer(self):
         footer_frame = ctk.CTkFrame(self, fg_color="transparent")
         # Reduced the bottom padding from 40 to 20 to preserve layout balance
@@ -158,10 +179,20 @@ class GilderUI(CTkWithDnD):
 
         # --- Cosmetic Progress Bar ---
         self.progress_var = ctk.DoubleVar(value=0.0)
-        self.progress_bar = ctk.CTkProgressBar(footer_frame, variable=self.progress_var, width=300, height=10,
+
+        # NEW: Container to hold the bar and the spinner side-by-side
+        progress_container = ctk.CTkFrame(footer_frame, fg_color="transparent")
+        progress_container.pack(pady=(0, 5))
+
+        self.progress_bar = ctk.CTkProgressBar(progress_container, variable=self.progress_var, width=300, height=10,
                                                progress_color="#2A9D6A", fg_color="#E2E8F0")
         self.progress_bar.set(0)
-        self.progress_bar.pack(pady=(0, 5))
+        self.progress_bar.pack(side="left")
+
+        # NEW: Spinner Label (Fixed width of 25 so it doesn't push elements around while spinning)
+        self.spinner_label = ctk.CTkLabel(progress_container, text=self.spinner_idle, font=("Segoe UI", 16, "bold"),
+                                          text_color="#2A9D6A", width=25)
+        self.spinner_label.pack(side="left", padx=(10, 0))
 
         self.status_var = ctk.StringVar(value="0.0%")
         self.status_label = ctk.CTkLabel(footer_frame,
@@ -171,7 +202,9 @@ class GilderUI(CTkWithDnD):
                                          textvariable=self.status_var)
         self.status_label.pack(pady=(0, 10))
 
-        self.progress_var.trace_add("write", lambda *args: self.status_var.set(f"{(self.progress_var.get() * 100):.1f}%"))
+        # self.progress_var.trace_add("write",
+        #                             lambda *args: self.status_var.set(f"{(self.progress_var.get() * 100):.1f}%"))
+        self.progress_var.trace_add("write", self._on_progress_update)
 
         # Set an unmistakably large height of 75 so you can see it working
         process_btn = ctk.CTkButton(footer_frame, text="⚙️ Обробити",
@@ -181,6 +214,20 @@ class GilderUI(CTkWithDnD):
                                     command=self._process_file)
 
         process_btn.pack(pady=10)
+
+    def start_spinner(self):
+        self.is_spinning = True
+        self._animate_spinner()
+
+    def stop_spinner(self):
+        self.is_spinning = False
+        self.spinner_label.configure(text=self.spinner_done)
+
+    def _animate_spinner(self):
+        if self.is_spinning:
+            self.spinner_label.configure(text=self.spinner_frames[self.spinner_idx])
+            self.spinner_idx = (self.spinner_idx + 1) % len(self.spinner_frames)
+            self.after(50, self._animate_spinner)
 
     def _highlight_dropzone(self, event=None):
         self.drop_frame.configure(fg_color="#F1F5F9")
@@ -225,11 +272,22 @@ class GilderUI(CTkWithDnD):
         self.browse_text.configure(text="Натисніть, щоб обрати інший файл.")
         self.drop_frame.configure(border_color="#2A9D6A")
 
+    # def _on_process_press(self):
+    #     if self.processor is not None and self.processor.is_alive():
+    #         file_name = self.processor.parent_file
+    #         confirmation = messagebox.askokcancel(title="Підтвердити операцію", message=f"Триває обробка файлу {file_name}."
+    #                                                                                     f"\nПочаток обробки нового файлу означатиме"
+    #                                                                                     f"\nпередчасне переривання обробки вищевказаного"
+    #                                                                                     f"\nфайлу. Чи бажаєте продовжити?")
+    #         if confirmation:
+
+
     def _process_file(self):
         if not self.selected_file_path:
             self.drag_text.configure(text="⚠️ Будь ласка, спершу оберіть файл!", text_color="#EAB308")
             return
         self.progress_var.set(0.0)
+        self.start_spinner()
         mode = self.processing_mode.get()
         if mode == "amend":
             processor = OSBGilder(self.selected_file_path, self.progress_var)

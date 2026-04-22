@@ -1,4 +1,4 @@
-from threading import Thread
+from threading import Thread, Event
 import OSB_Gilder.back.script.utils as utils
 import time
 from OSB_Gilder.back.script.indicator_tables_creator import IndicatorTablesCreator
@@ -13,6 +13,7 @@ class OSBGilder(Thread):
         self.parent_file = parent_file
         self.progress_var = progress_var
         self.delay = 0.01
+        # self.stop = Event()
 
     def update_progress(self, value):
         current = self.progress_var.get()
