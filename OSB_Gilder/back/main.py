@@ -8,6 +8,7 @@ from OSB_Gilder.back.script.summary_sheet_creator import SummarySheetCreator
 
 class OSBGilder(Thread):
     def __init__(self, parent_file, progress_var):
+        self.start_time = time.perf_counter()
         super().__init__(target=self.main, daemon=True)
         print(f"Initialising OSBGilder object for {parent_file}")
         self.parent_file = parent_file
@@ -57,6 +58,8 @@ class OSBGilder(Thread):
         self.update_progress(5)
 
         print(f"Modified workbook saved as {self.parent_file}")
+        self.finish_time = time.perf_counter()
+        print(f"Finished in {(self.finish_time - self.start_time):.2f} second(s)")
 
 if __name__ == '__main__':
     test = OSBGilder("/Users/illiaknu/Desktop/OSB_Gilder/OSB_Gilder/test_chamber/TEST_singular.xlsx")

@@ -168,12 +168,10 @@ class BalanceSheet:
                                        BalanceSheet.LOGICAL_COLUMNS,
                                        self.start_row + 1,
                                        self.start_col)  # self.indicator_frame
-        self.insert_frame(self.parent_file,
-                          start_row=self.start_row,
-                          start_col=self.start_col)  # self.indicator_frame_cells
+        # self.insert_frame(self.parent_file,
+        #                   start_row=self.start_row,
+        #                   start_col=self.start_col)  # self.indicator_frame_cells
         self.create_pivot_db()  # self.pivot_db
-        self.attach_indicators_to_codes()
-        self.create_sheet_codes_db()  # self.sheet_db
 
     @property
     def column_parity(self):
@@ -407,17 +405,6 @@ class BalanceSheet:
 
         self.indicator_frame_cells = df_cells
 
-    def attach_indicators_to_codes(self):
-        for code, block in self.coded_blocks.items():
-            df = block.df
-            for ind in BalanceSheet.INDICATORS:
-                if ind.kind == IndicatorKind.PRIMARY:
-                    df[ind.name] = "—"
-                    if code in ind.associated_codes:
-                        df.loc[0, ind.name] = "Так"
-                    if f"{code}+" in ind.associated_codes and len(df) > 1:
-                        df.loc[1, ind.name] = "Так"
-
     def create_pivot_db(self):
         rows = []
 
@@ -473,33 +460,6 @@ class BalanceSheet:
         pivot_db.insert(4, "indicator", indicator_col)  # 4 = desired column position
 
         self.pivot_db = pivot_db
-
-    def create_sheet_codes_db(self):
-
-        cleaned_dfs = []
-
-        for coded_block in self.coded_blocks.values():
-            df = coded_block.df
-            # print(isinstance(df.iat[0, 0], Cell))
-            # print(df.iat[0, 0].value)
-            cleaned_df = df.map(
-                lambda x: x.value if hasattr(x, "value") else x
-            )
-            cleaned_df["id"] = cleaned_df["id"].iloc[0]
-            cleaned_df["name"] = cleaned_df["name"].iloc[0]
-            # print(cleaned_df)
-            cleaned_dfs.append(cleaned_df)
-
-        sheet_db = pd.concat(cleaned_dfs, ignore_index=True)
-
-        match = re.match(r'^\s*(\d+)', self.sheet.title)
-        number_str = match.group(1) if match else ""
-        text_part = self.sheet.title[match.end():].strip() if match else self.sheet.title
-
-        sheet_db.insert(0, "bank_name", text_part, True)
-        sheet_db.insert(0, "bank_code", number_str, True)
-
-        self.sheet_db = sheet_db
 
 
 if __name__ == '__main__':
