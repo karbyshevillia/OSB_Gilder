@@ -37,24 +37,28 @@ class IndicatorTablesCreator:
 
         increment_percent = 55 / total
 
-        # Just a standard, single-thread loop. No Pool, no Executors, no disk thrashing.
         for i, sheet_name in enumerate(valid_sheets):
             print(f"        [{i + 1}/{total}] Processing sheet: {sheet_name}")
 
             target_sheet_write = self.workbook[sheet_name]
-            target_sheet_data = self.workbook_data[sheet_name]
 
-            # 1. INSTANTLY EXTRACT THE GRID FROM THE DATA-ONLY WORKBOOK
-            sheet_values_grid = list(target_sheet_data.values)
+            # EXTRACT THE GRID USING CALAMINE
+            # .to_python() instantly returns the exact 2D list of lists we need
+            # It also automatically strips out formulas and gives you the raw values
+            try:
+                calamine_sheet = self.workbook_data.get_sheet_by_name(sheet_name)
+                sheet_values_grid = calamine_sheet.to_python()
+            except KeyError:
+                print(f"        [!] Sheet {sheet_name} not found in data workbook.")
+                continue
 
-            # 2. PASS THE GRID TO BALANCESHEET
+            # PASS THE GRID TO BALANCESHEET (Nothing changes here!)
             bs = BalanceSheet(
                 parent_file=self.parent_file,
-                sheet=target_sheet_write,  # Passes the standard sheet so insert_frame works
+                sheet=target_sheet_write,
                 sheet_grid=sheet_values_grid
             )
 
-            # 3. WRITE TO THE FILE
             bs.insert_frame(
                 parent_file=self.parent_file,
                 start_row=bs.start_row,

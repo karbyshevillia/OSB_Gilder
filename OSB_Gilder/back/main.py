@@ -5,6 +5,7 @@ from OSB_Gilder.back.script.indicator_tables_creator import IndicatorTablesCreat
 from OSB_Gilder.back.script.index_sheet_creator import IndexSheetCreator
 from OSB_Gilder.back.script.pivot_sheet_creator import PivotSheetCreator
 from OSB_Gilder.back.script.summary_sheet_creator import SummarySheetCreator
+from python_calamine import CalamineWorkbook
 
 class OSBGilder(Thread):
     def __init__(self, parent_file, progress_var):
@@ -31,7 +32,8 @@ class OSBGilder(Thread):
 
         print(f"    Loading read-only workbook from {self.parent_file}")
 
-        self.wb_data = utils.xl.load_workbook(self.parent_file, data_only=True)
+        self.wb_data = CalamineWorkbook.from_path(self.parent_file)
+        # self.wb_data = utils.xl.load_workbook(self.parent_file, data_only=True)
         self.update_progress(10)
 
         print(f"    STAGE 1 COMPLETE")
