@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-windows:
-    runs-on: windows-2019 # 💻 Requests a fresh Windows server
+    runs-on: windows-latest # 💻 Requests a fresh Windows server
 
     steps:
     # 1. Download your code onto the server
