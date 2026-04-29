@@ -5,6 +5,7 @@ from tkinter import filedialog, PhotoImage, messagebox
 import customtkinter as ctk
 from tkinterdnd2 import TkinterDnD, DND_FILES
 from OSB_Gilder.back.main import OSBGilder
+from threading import Event
 
 
 class CTkWithDnD(ctk.CTk, TkinterDnD.DnDWrapper):
@@ -31,6 +32,7 @@ class GilderUI(CTkWithDnD):
         self.spinner_frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
         self.spinner_idle = '—'
         self.spinner_done = '✓'
+        self.spinner_cancelled = '✗'
         self.spinner_idx = 0
         self.is_spinning = False
 
@@ -45,7 +47,10 @@ class GilderUI(CTkWithDnD):
         self.iconphoto(True, PhotoImage(file=icon_path))
 
         # # Processor variable
-        # self.processor = None
+        self.worker_thread = None
+
+        # Cancel event
+        self.cancel_event = Event()
 
     def _build_header(self):
         header_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -162,15 +167,19 @@ class GilderUI(CTkWithDnD):
             self.copy_card.configure(border_color="#2A9D6A", border_width=1)
 
     def _on_progress_update(self, *args):
-        # 1. Get the current progress
-        current_progress = self.progress_var.get()
+        if not self.cancel_event.is_set():
+            # 1. Get the current progress
+            current_progress = self.progress_var.get()
 
-        # 2. Update your status label (replacing your lambda)
-        self.status_var.set(f"{(current_progress * 100):.1f}%")
+            # 2. Update your status label (replacing your lambda)
+            self.status_var.set(f"{(current_progress * 100):.1f}%")
 
-        # 3. Stop the spinner if we hit 100% (1.0)
-        if current_progress >= 1.0:
-            self.stop_spinner()
+            # 3. Stop the spinner if we hit 100% (1.0)
+            if current_progress >= 1.0:
+                self.stop_spinner()
+                self.reset_process_button()
+        else:
+            self.status_var.set("0.0%")
 
     def _build_footer(self):
         footer_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -207,13 +216,39 @@ class GilderUI(CTkWithDnD):
         self.progress_var.trace_add("write", self._on_progress_update)
 
         # Set an unmistakably large height of 75 so you can see it working
-        process_btn = ctk.CTkButton(footer_frame, text="⚙️ Обробити",
+        self.process_btn = ctk.CTkButton(footer_frame, text="⚙️ Обробити",
                                     font=("Segoe UI", 20, "bold"),
                                     fg_color="#2A9D6A", hover_color="#218056",
                                     width=300, height=50, corner_radius=8,
                                     command=self._process_file)
 
-        process_btn.pack(pady=10)
+        self.process_btn.pack(pady=10)
+
+    def reset_process_button(self):
+        """Reverts the button back to the green Process state."""
+        self.process_btn.configure(
+            text="⚙️ Обробити",
+            fg_color="#2A9D6A",
+            hover_color="#218056",
+            command=self._process_file
+        )
+
+    def cancel_processing(self):
+        """Instantly resets the UI and flags the ghost thread to die."""
+        if self.worker_thread and self.worker_thread.is_alive():
+            print("Cancelling process...")
+            self.cancel_event.set()  # Trip the flag!
+
+            # Cut ties with the thread
+            self.worker_thread = None
+
+            # Instantly reset the UI to make it look like it stopped
+            self.stop_spinner()
+            # self.progress_var.set(0.0)
+            self.drag_text.configure(text=f"Обробку файлу {os.path.basename(self.selected_file_path)} скасовано.", text_color="#EAB308")
+
+            # Revert the button back to green
+            self.reset_process_button()
 
     def start_spinner(self):
         self.is_spinning = True
@@ -221,7 +256,13 @@ class GilderUI(CTkWithDnD):
 
     def stop_spinner(self):
         self.is_spinning = False
-        self.spinner_label.configure(text=self.spinner_done)
+        if not self.cancel_event.is_set():
+            spinner_label = self.spinner_done
+            spinner_label_colour = "#2A9D6A"
+        else:
+            spinner_label = self.spinner_cancelled
+            spinner_label_colour = "#EF4444"
+        self.spinner_label.configure(text=spinner_label, text_color=spinner_label_colour)
 
     def _animate_spinner(self):
         if self.is_spinning:
@@ -281,17 +322,31 @@ class GilderUI(CTkWithDnD):
     #                                                                                     f"\nфайлу. Чи бажаєте продовжити?")
     #         if confirmation:
 
-
     def _process_file(self):
         if not self.selected_file_path:
             self.drag_text.configure(text="⚠️ Будь ласка, спершу оберіть файл!", text_color="#EAB308")
             return
+
         self.progress_var.set(0.0)
         self.start_spinner()
+
+        # CLEAR THE CANCEL EVENT
+        self.cancel_event.clear()
+
+        # TURN THE BUTTON RED AND CHANGE IT TO CANCEL
+        self.process_btn.configure(
+            text="❌ Скасувати",
+            fg_color="#EF4444",  # Red color
+            hover_color="#DC2626",  # Darker red on hover
+            command=self.cancel_processing
+        )
+
         mode = self.processing_mode.get()
         if mode == "amend":
-            processor = OSBGilder(self.selected_file_path, self.progress_var)
-            processor.start()
+            self.worker_thread = OSBGilder(self.selected_file_path, self.progress_var, self.cancel_event)
+            self.worker_thread.daemon = True
+            self.worker_thread.start()
+
         elif mode == "copy":
             file_path = filedialog.asksaveasfilename(
                 title="Оберіть назву обробленого файлу",
@@ -299,9 +354,16 @@ class GilderUI(CTkWithDnD):
                 filetypes=[("Excel Files", "*.xlsx *.xls")],
                 initialfile=Path(self.selected_file_path).stem + "_modified"
             )
+            # If the user cancels the file dialog, revert the button and return early
+            if not file_path:
+                self.reset_process_button()
+                self.stop_spinner()
+                return
+
             shutil.copyfile(self.selected_file_path, file_path)
-            processor = OSBGilder(file_path, self.progress_var)
-            processor.start()
+            self.worker_thread = OSBGilder(file_path, self.progress_var, self.cancel_event)
+            self.worker_thread.daemon = True
+            self.worker_thread.start()
 
         print(f"Виконується обробка файлу '{self.selected_file_path}' у режимі '{mode}'.")
 
