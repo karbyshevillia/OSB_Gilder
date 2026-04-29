@@ -8,24 +8,29 @@ from OSB_Gilder.back.script.summary_sheet_creator import SummarySheetCreator
 from python_calamine import CalamineWorkbook
 
 class OSBGilder(Thread):
-    def __init__(self, parent_file, progress_var):
+    def __init__(self, parent_file, progress_var, cancel_event):
         self.start_time = time.perf_counter()
-        super().__init__(target=self.main, daemon=True)
+        super().__init__(target=self.run, daemon=True)
         print(f"Initialising OSBGilder object for {parent_file}")
         self.parent_file = parent_file
         self.progress_var = progress_var
         self.delay = 0.01
-        # self.stop = Event()
+        self.cancel_event = cancel_event
 
     def update_progress(self, value):
-        current = self.progress_var.get()
-        new = current + value / 100.0
-        self.progress_var.set(new)
-        time.sleep(self.delay)
+        if not self.cancel_event.is_set():
+            current = self.progress_var.get()
+            new = current + value / 100.0
+            self.progress_var.set(new)
+            time.sleep(self.delay)
 
-    def main(self):
+    def run(self):
         print(f"\n=== STAGE 1: Workbook preparation ===")
         print(f"    Loading workbook from {self.parent_file}")
+
+        if self.cancel_event.is_set():
+            print(f"Aborting modification of {self.parent_file}...")
+            return
 
         self.wb = utils.xl.load_workbook(self.parent_file)
         self.update_progress(15)
@@ -33,8 +38,11 @@ class OSBGilder(Thread):
         print(f"    Loading read-only workbook from {self.parent_file}")
 
         self.wb_data = CalamineWorkbook.from_path(self.parent_file)
-        # self.wb_data = utils.xl.load_workbook(self.parent_file, data_only=True)
         self.update_progress(10)
+
+        if self.cancel_event.is_set():
+            print(f"Aborting modification of {self.parent_file}...")
+            return
 
         print(f"    STAGE 1 COMPLETE")
         print(f"\nStarting workbook modification")
@@ -42,17 +50,30 @@ class OSBGilder(Thread):
         self.indicator_tables_creator = IndicatorTablesCreator(self.wb,
                                                                self.wb_data,
                                                                self.parent_file,
-                                                               self.progress_var)
-        # self.update_progress(30)
+                                                               self.progress_var,
+                                                               self.cancel_event)
+
+        if self.cancel_event.is_set():
+            print(f"Aborting modification of {self.parent_file}...")
+            return
 
         self.index_sheet_creator = IndexSheetCreator(self.indicator_tables_creator)
-        # self.update_progress(10)
+
+        if self.cancel_event.is_set():
+            print(f"Aborting modification of {self.parent_file}...")
+            return
 
         self.summary_sheet_creator = SummarySheetCreator(self.index_sheet_creator)
-        # self.update_progress(10)
+
+        if self.cancel_event.is_set():
+            print(f"Aborting modification of {self.parent_file}...")
+            return
 
         self.pivot_sheet_creator = PivotSheetCreator(self.index_sheet_creator)
-        # self.update_progress(10)
+
+        if self.cancel_event.is_set():
+            print(f"Aborting modification of {self.parent_file}...")
+            return
 
         print(f"\nWorkbook modification complete")
 
@@ -65,4 +86,4 @@ class OSBGilder(Thread):
 
 if __name__ == '__main__':
     test = OSBGilder("/Users/illiaknu/Desktop/OSB_Gilder/OSB_Gilder/test_chamber/TEST_singular.xlsx")
-    test.main()
+    test.run()

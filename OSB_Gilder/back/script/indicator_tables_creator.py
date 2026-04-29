@@ -4,7 +4,7 @@ import time
 
 
 class IndicatorTablesCreator:
-    def __init__(self, workbook, workbook_data, parent_file, progress_var):
+    def __init__(self, workbook, workbook_data, parent_file, progress_var, cancel_event):
         print(f"\n=== STAGE 2: Indicator Tables Creation ===")
         print(f"    Initialising an IndicatorTablesCreator object")
         self.workbook = workbook
@@ -16,15 +16,17 @@ class IndicatorTablesCreator:
         self.progress_var = progress_var
         self.delay = 0.01
         self.percentage = 55
+        self.cancel_event = cancel_event
         self.sheets_dict = {}
         self.create_sheets_dict()
         print(f"    STAGE 2 COMPLETE")
 
     def update_progress(self, value):
-        current = self.progress_var.get()
-        new = current + value / 100.0
-        self.progress_var.set(new)
-        time.sleep(self.delay)
+        if not self.cancel_event.is_set():
+            current = self.progress_var.get()
+            new = current + value / 100.0
+            self.progress_var.set(new)
+            time.sleep(self.delay)
 
     def create_sheets_dict(self):
         print(f"    Creating BalanceSheet objects:")
@@ -38,6 +40,9 @@ class IndicatorTablesCreator:
         increment_percent = 55 / total
 
         for i, sheet_name in enumerate(valid_sheets):
+            if self.cancel_event.is_set():
+                print(f"Aborting modification of {self.parent_file}...")
+                return
             print(f"        [{i + 1}/{total}] Processing sheet: {sheet_name}")
 
             target_sheet_write = self.workbook[sheet_name]
