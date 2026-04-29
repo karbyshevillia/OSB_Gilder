@@ -7,14 +7,14 @@ license = "GPL-3.0"
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = ">=3.11,<3.15"
 openpyxl = "^3.1.5"
 pandas = "^3.0.2"
 tkinterdnd2 = "^0.4.3"
 ttkbootstrap = "^1.20.2"
 customtkinter = "^5.2.2"
-pathlib = "^1.0.1"
 python-calamine = "^0.6.2"
+pyinstaller = "^6.20.0"
 
 
 [build-system]

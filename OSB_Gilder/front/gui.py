@@ -43,8 +43,8 @@ class GilderUI(CTkWithDnD):
         self._build_footer()
 
         # Miscellany
-        icon_path = os.path.join(os.path.dirname(__file__), "icon.png")
-        self.iconphoto(True, PhotoImage(file=icon_path))
+        # icon_path = os.path.join(os.path.dirname(__file__), "icon.png")
+        # self.iconphoto(True, PhotoImage(file=icon_path))
 
         # # Processor variable
         self.worker_thread = None
