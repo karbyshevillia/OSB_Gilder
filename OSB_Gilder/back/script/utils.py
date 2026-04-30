@@ -32,12 +32,14 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 import pandas as pd
 
 # from ..account_rows import BalanceSheet
+# Ensure UTF-8 encoding for Cyrillic characters (SAFE FOR PYINSTALLER WINDOWED MODE)
+if sys.stdout is not None and hasattr(sys.stdout, 'buffer'):
+    if getattr(sys.stdout, 'encoding', '') != 'utf-8':
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-# Ensure UTF-8 encoding for Cyrillic characters
-if sys.stdout.encoding != 'utf-8':
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-if sys.stderr.encoding != 'utf-8':
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+if sys.stderr is not None and hasattr(sys.stderr, 'buffer'):
+    if getattr(sys.stderr, 'encoding', '') != 'utf-8':
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 
 def _datalabel_text_style(size_pt=12, bold=True, color="000000"):
