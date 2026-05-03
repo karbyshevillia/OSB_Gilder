@@ -1,0 +1,41 @@
+name: Build Windows EXE
+
+# Runs every time you push code to the "main" branch
+on:
+  push:
+    branches: [ "to_exe_patch_1" ]
+
+jobs:
+  build-windows:
+    runs-on: windows-latest # 💻 Requests a fresh Windows server
+
+    steps:
+    # 1. Download your code onto the server
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    # 2. Install Python
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11' # Change to match your pyproject.toml
+
+    # 3. Install Poetry using GitHub's built-in pipx
+    - name: Install Poetry
+      run: pipx install poetry
+
+    # 4. Install your project's dependencies from poetry.lock
+    - name: Install Dependencies
+      run: poetry install --no-interaction
+
+    # 5. Run your PyInstaller command inside the Poetry environment!
+    - name: Build EXE with PyInstaller
+      run: |
+        poetry run pyinstaller --name "OSBGilder" --onedir --windowed --icon="icon.icns" --collect-all customtkinter --collect-all tkinterdnd2 --collect-all python_calamine --add-data "icon.icns:." main.py
+
+    # 6. Zip up the finished folder and upload it to your GitHub page
+    - name: Upload Windows EXE
+      uses: actions/upload-artifact@v4
+      with:
+        name: OSBGilder-Windows
+        path: dist/OSBGilder/
