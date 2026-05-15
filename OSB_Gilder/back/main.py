@@ -6,6 +6,7 @@ from OSB_Gilder.back.script.index_sheet_creator import IndexSheetCreator
 from OSB_Gilder.back.script.pivot_sheet_creator import PivotSheetCreator
 from OSB_Gilder.back.script.summary_sheet_creator import SummarySheetCreator
 from python_calamine import CalamineWorkbook
+import customtkinter as ctk
 
 class OSBGilder(Thread):
     def __init__(self, parent_file, progress_var, cancel_event):
@@ -85,5 +86,8 @@ class OSBGilder(Thread):
         print(f"Finished in {(self.finish_time - self.start_time):.2f} second(s)")
 
 if __name__ == '__main__':
-    test = OSBGilder("/Users/illiaknu/Desktop/OSB_Gilder/OSB_Gilder/test_chamber/TEST_singular.xlsx")
+    rt = ctk.CTk()
+    pv = ctk.DoubleVar()
+    c = Event()
+    test = OSBGilder("/Users/illiaknu/Desktop/OSB_Gilder/OSB_Gilder/test_chamber/TEST_singular.xlsx", pv, c)
     test.run()

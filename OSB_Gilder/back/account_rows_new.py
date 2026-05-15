@@ -5,25 +5,27 @@ import re
 from openpyxl.utils import column_index_from_string, get_column_letter
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from indicators_new import IndicatorsFrameBuilder
-
+import json
 
 class BalanceSheet:
-    def __init__(self, parent_file, indicators_file, sheet):
+    def __init__(self, parent_file, indicators_file, sheet, bank_class_json=None):
         self.parent_file = parent_file
         self.indicators_file = indicators_file
         self.sheet = sheet
 
         # 1. High-speed parse to get coordinates
-        # We use the 'grid' method from your original source for speed
         self.balance_codes_frame = self.parse_to_sane()
-        print(self.balance_codes_frame.head(15))
+        print(self.balance_codes_frame.head(5))
 
-        # 2. Initialize the builder and generate formulas
+        # 2. Initialize the builder (We don't build_frame yet, we need the start_coord)
         self.builder = IndicatorsFrameBuilder(indicators_file, self.balance_codes_frame)
-        self.indicators_frame = self.builder.build_frame()
+        self.indicators_frame = None
+
+        self.pivot_db = None
+        if bank_class_json:
+            self.create_db(bank_class_json)
 
     def get_col_letter(self, col_idx):
-        """Converts a 0-based Pandas column index into an Excel column letter (0 -> 'A', 26 -> 'AA')"""
         string = ""
         col_idx += 1
         while col_idx > 0:
@@ -32,15 +34,9 @@ class BalanceSheet:
         return string
 
     def parse_to_sane(self):
-        """
-        Fast extraction of row coordinates.
-        Returns a DataFrame: ['Balance', 'Kind', 'Kind_Mark', 'Coord_Debit_Total', ...]
-        """
         # 1. Fast Load with Calamine
         df_raw = pd.read_excel(self.parent_file, sheet_name=self.sheet.title, header=None, dtype=str, engine='calamine')
 
-        # NEW: Lock in the original Excel Row Numbers before we do any slicing!
-        # Pandas index is 0-based, Excel is 1-based.
         df_raw['Excel_Row'] = df_raw.index + 1
 
         # 2. Locate the Anchor
@@ -62,11 +58,11 @@ class BalanceSheet:
                 headers.loc[idx] = row.ffill()
 
         col_mapping = {}
-        col_letters = {}  # NEW: Track the Excel Column letters!
+        col_letters = {}
 
         for col in df_raw.columns:
             if col == 'Excel_Row': continue
-            text = " ".join(headers[col].dropna().tolist())
+            text = " ".join(headers[col].dropna().tolist()).replace('i', 'і')  # Normalize i
 
             mapped_name = None
             if 'дебет' in text:
@@ -74,21 +70,21 @@ class BalanceSheet:
                     mapped_name = 'Debit_Total'
                 elif 'нв' in text:
                     mapped_name = 'Debit_NC'
-                elif 'ів' in text or 'iв' in text:
+                elif 'ів' in text:
                     mapped_name = 'Debit_IC'
             elif 'кредит' in text:
                 if 'усього' in text:
                     mapped_name = 'Credit_Total'
                 elif 'нв' in text:
                     mapped_name = 'Credit_NC'
-                elif 'ів' in text or 'iв' in text:
+                elif 'ів' in text:
                     mapped_name = 'Credit_IC'
             elif 'сальдо' in text:
                 if 'усього' in text:
                     mapped_name = 'Balance_Total'
                 elif 'нв' in text:
                     mapped_name = 'Balance_NC'
-                elif 'ів' in text or 'iв' in text:
+                elif 'ів' in text:
                     mapped_name = 'Balance_IC'
 
             if mapped_name:
@@ -98,10 +94,8 @@ class BalanceSheet:
         # ==========================================
         # 4. DATA BLOCK PROCESSING
         # ==========================================
-        # Instead of resetting the index, we just copy. The 'Excel_Row' column travels with it safely.
         df_data = df_raw.iloc[data_start_row:].copy()
 
-        # COLUMN 1: "Kind"
         df_data['Kind'] = pd.Series(np.nan, dtype='object', index=df_data.index)
         active_pattern = r'^\s*Актив(и|ні)?\s*$'
         passive_pattern = r'^\s*(Зобов\'язання|Пасив(и|ні)?|Капітал)\s*$'
@@ -112,7 +106,6 @@ class BalanceSheet:
             if not text_vals: return False
             return all(re.fullmatch(pattern, v, flags=re.IGNORECASE) for v in text_vals)
 
-        # Note: drop 'Excel_Row' from the exclusivity check so it doesn't trigger false negatives!
         check_data = df_data.drop(columns=['Excel_Row'])
         active_mask = check_data.apply(lambda r: is_exclusive_header_row(r, active_pattern), axis=1)
         passive_mask = check_data.apply(lambda r: is_exclusive_header_row(r, passive_pattern), axis=1)
@@ -121,7 +114,6 @@ class BalanceSheet:
         df_data.loc[passive_mask, 'Kind'] = 'Passive'
         df_data['Kind'] = df_data['Kind'].ffill()
 
-        # COLUMNS 2-5: "Balance" via Purity Ratio & ffill
         best_balance_col = None
         max_purity = 0
 
@@ -149,7 +141,6 @@ class BalanceSheet:
         df_data[best_balance_col] = df_data[best_balance_col].replace({'nan': np.nan, 'None': np.nan})
         df_data[best_balance_col] = df_data[best_balance_col].ffill()
 
-        # COLUMN 7: "Kind_Mark" (А/П)
         ap_cols = []
         for col in df_data.columns:
             if col in col_mapping or col in ('Kind', 'Excel_Row'): continue
@@ -162,7 +153,6 @@ class BalanceSheet:
         col_mapping[ap_cols[0]] = 'Kind_Mark'
         col_letters['Kind_Mark'] = self.get_col_letter(ap_cols[0])
 
-        # COLUMN 6: "Name"
         best_name_col = None
         max_name_len = 0
         for col in df_data.columns:
@@ -187,7 +177,6 @@ class BalanceSheet:
         # ==========================================
         # 5. FILTERING AND ASSEMBLY
         # ==========================================
-
         line_items = df_data[
             df_data['Kind_Mark'].astype(str).str.match(r'^[АПA-P]{1,2}$', na=False, flags=re.IGNORECASE)].copy()
 
@@ -216,50 +205,57 @@ class BalanceSheet:
             if col not in line_items.columns:
                 line_items[col] = np.nan
 
-        # NEW: Inject Coordinates!
-        # We will loop through columns that have an original physical location (like Balance_Total, Name, etc.)
-        # and combine their Excel Letter + their Excel Row to create columns like 'Coord_Balance_Total'.
         coord_cols = []
         for col in final_cols:
             if col in col_letters:
                 coord_col_name = f"Coord_{col}"
                 coord_cols.append(coord_col_name)
-                # Combine the tracked Letter (e.g., 'M') with the Row string (e.g., '15') -> 'M15'
                 line_items[coord_col_name] = col_letters[col] + line_items['Excel_Row'].astype(str)
 
-        # Assembly: Bring it all together (16 Data cols + Coordinate Cols)
         clean_df = line_items[final_cols + coord_cols].copy().dropna(axis=1, how="all")
 
-        for col in final_cols[7:]:  # Safely cast the 9 value columns to floats
+        for col in final_cols[7:]:
             clean_df[col] = pd.to_numeric(clean_df[col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
 
         return clean_df
 
     def insert_indicators_frame(self, start_coord="A1"):
-        """
-        Writes the indicators_frame with professional formatting and auto-column width.
-        """
-        # --- Define Styles ---
-        header_fill = PatternFill(start_color="EAEAEA", end_color="EAEAEA", fill_type="solid")
-        header_font = Font(bold=True, name='Calibri')
+        # 1. Build the frame USING the target coordinate for proper IND_REF spatial pointers
+        self.indicators_frame = self.builder.build_frame(start_coord)
 
-        thin_border = Border(
-            left=Side(style='thin'),
-            right=Side(style='thin'),
-            top=Side(style='thin'),
-            bottom=Side(style='thin')
-        )
-
-        center_align = Alignment(horizontal='center', vertical='center')
-        left_align = Alignment(horizontal='left', vertical='center', wrap_text=True)
-
-        # --- Parse Coordinates ---
         match = re.match(r"([A-Z]+)(\d+)", start_coord)
         start_col_letter, start_row_num = match.groups()
         base_col = column_index_from_string(start_col_letter)
         base_row = int(start_row_num)
 
-        # --- Write & Format Headers ---
+        # 2. SAFETY UNMERGE: Prevent read-only crashes
+        rows_to_write = len(self.indicators_frame) + 1
+        cols_to_write = len(self.indicators_frame.columns)
+
+        merged_ranges_to_unmerge = []
+        for merged_range in list(self.sheet.merged_cells.ranges):
+            min_col, min_row, max_col, max_row = merged_range.bounds
+            # Check for overlap between the target footprint and the merged range
+            if (min_row <= base_row + rows_to_write and max_row >= base_row and
+                    min_col <= base_col + cols_to_write and max_col >= base_col):
+                merged_ranges_to_unmerge.append(str(merged_range))
+
+        for m_range in merged_ranges_to_unmerge:
+            self.sheet.unmerge_cells(m_range)
+
+        # 3. Define Styles
+        header_fill = PatternFill(start_color="EAEAEA", end_color="EAEAEA", fill_type="solid")
+        header_font = Font(bold=True, name='Calibri')
+
+        thin_border = Border(
+            left=Side(style='thin'), right=Side(style='thin'),
+            top=Side(style='thin'), bottom=Side(style='thin')
+        )
+
+        center_align = Alignment(horizontal='center', vertical='center')
+        left_align = Alignment(horizontal='left', vertical='center', wrap_text=True)
+
+        # 4. Write & Format Headers
         for c_idx, col_name in enumerate(self.indicators_frame.columns):
             cell = self.sheet.cell(row=base_row, column=base_col + c_idx)
             cell.value = col_name
@@ -268,7 +264,7 @@ class BalanceSheet:
             cell.alignment = center_align
             cell.border = thin_border
 
-        # --- Write & Format Data ---
+        # 5. Write & Format Data
         data = self.indicators_frame.values
         for r_idx, row_values in enumerate(data, start=1):
             for c_idx, value in enumerate(row_values):
@@ -276,31 +272,114 @@ class BalanceSheet:
                 cell.value = value
                 cell.border = thin_border
 
-                # Names and IDs look better left-aligned, numbers/sums centered
-                if c_idx < 2:  # ID and NAME columns
+                if c_idx < 2:  # ID and NAME
                     cell.alignment = left_align
                 else:
                     cell.alignment = center_align
 
-        # --- Auto-Adjust Column Widths ---
-        # We estimate width based on the longest string in each column
+        # 6. Auto-Adjust Column Widths
         for i, col_name in enumerate(self.indicators_frame.columns):
-            # Check header length and the max length in that column's data
             column_data = self.indicators_frame.iloc[:, i].astype(str)
             max_length = max(column_data.map(len).max(), len(col_name)) + 2
-
-            # Hard cap at 50 so it doesn't get ridiculously wide for long formulas
             adjusted_width = min(max_length, 50)
-
             col_letter = get_column_letter(base_col + i)
             self.sheet.column_dimensions[col_letter].width = adjusted_width
 
+    def create_db(self, classification_json_path):
+        """
+        Creates a flat database frame from the parsed balance codes,
+        appending bank identification from the sheet title and the nested JSON classification file.
+        Duplicates rows for multiple indicators using .explode().
+        """
+        # 1. Parse Bank Code and Name from Sheet Title
+        match = re.match(r'^\s*(\d+)', self.sheet.title)
+        bank_code = match.group(1) if match else ""
+        bank_name = self.sheet.title[match.end():].strip() if match else self.sheet.title
+
+        # 2. Determine Bank Class from JSON
+        bank_class = "Приватний капітал"  # Default fallback
+        if classification_json_path:
+            try:
+                import json
+                with open(classification_json_path, 'r', encoding='utf-8') as f:
+                    class_data = json.load(f)
+
+                # Map the JSON group keys to your standard Ukrainian labels
+                class_mapping = {
+                    "state_owned_banks": "Державний",
+                    "foreign_banking_groups": "Іноземний капітал",
+                    "private_capital_banks": "Приватний капітал"
+                }
+
+                # Normalize string for fuzzy matching (remove quotes, lowercase)
+                b_name_clean = bank_name.lower().replace('"', '').replace("'", '').strip()
+
+                found = False
+                if "groups" in class_data:
+                    for group_key, group_info in class_data["groups"].items():
+                        target_class = class_mapping.get(group_key, group_key)
+
+                        for bank_obj in group_info.get("banks", []):
+                            json_b_name = bank_obj.get("name", "").lower().replace('"', '').replace("'", '').strip()
+
+                            # Flexible match: sheet name is inside JSON name, or JSON name is inside sheet name
+                            if b_name_clean in json_b_name or json_b_name in b_name_clean:
+                                bank_class = target_class
+                                found = True
+                                break
+                        if found:
+                            break
+            except Exception as e:
+                print(f"Warning: Could not load classification JSON ({e}).")
+
+        # 3. Build the Database Frame
+        db_df = self.balance_codes_frame.copy()
+
+        # --- THE EXPLODE LOGIC FOR MANY-TO-MANY INDICATORS ---
+        def get_indicators_for_row(idx):
+            used_by = self.builder.code_usage.get(idx, set())
+            if not used_by:
+                return ["(без привʼязки)"]
+
+            return [str(i_id) for i_id in sorted(used_by)]
+
+        # Assign lists to the column and explode
+        db_df['indicator'] = db_df.index.map(get_indicators_for_row)
+        db_df = db_df.explode('indicator', ignore_index=True)
+        # -----------------------------------------------------
+
+        # Insert metadata columns at the front
+        db_df.insert(0, "bank_class", bank_class)
+        db_df.insert(0, "bank_name", bank_name)
+        db_df.insert(0, "bank_code", bank_code)
+
+        # Drop the Excel-specific coordinate columns as they aren't needed in a DB
+        coord_cols = [c for c in db_df.columns if str(c).startswith('Coord_') or c == 'Excel_Row']
+        db_df.drop(columns=coord_cols, inplace=True, errors='ignore')
+
+        # Move indicator to the desired column position (index 4)
+        indicator_col = db_df.pop("indicator")
+        db_df.insert(4, "indicator", indicator_col)
+
+        self.pivot_db = db_df
+        return db_df
+
+
 if __name__ == '__main__':
     pd.set_option('display.max_columns', None)
+
     par_file = "/Users/illiaknu/Desktop/OSB_Gilder/OSB_Gilder/test_chamber/TEST_singular_9.xlsx"
     ind_file = "/Users/illiaknu/Desktop/OSB_Gilder/OSB_Gilder/back/testing/ind.csv"
+    banks_file = "/Users/illiaknu/Desktop/OSB_Gilder/OSB_Gilder/back/testing/banks.json"
+
     wb = xl.load_workbook(par_file)
     sheet = wb.worksheets[1]
-    bs = BalanceSheet(par_file, ind_file, sheet)
-    bs.insert_indicators_frame(start_coord="I1023")
+
+    bs = BalanceSheet(par_file, ind_file, sheet, bank_class_json=banks_file)
+
+    # Try a notoriously problematic coordinate to test the unmerge feature
+    bs.insert_indicators_frame(start_coord="G1023")
+
     wb.save(par_file)
+    print(bs.pivot_db.head(15))
+    print("Injection Complete!")
