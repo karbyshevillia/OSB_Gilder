@@ -3,7 +3,7 @@ name: Build Windows EXE
 # Runs every time you push code to the "main" branch
 on:
   push:
-    branches: [ "to_exe_patch_1" ]
+    branches: [ "main" ]
 
 jobs:
   build-windows:
