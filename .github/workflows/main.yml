@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-windows:
-    runs-on: macos-14 # 💻 Requests a fresh Windows server
+    runs-on: macos-14-large # 💻 Requests a fresh Windows server
 
     steps:
     # 1. Download your code onto the server
