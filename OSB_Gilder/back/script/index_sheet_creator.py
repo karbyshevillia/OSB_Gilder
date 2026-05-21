@@ -74,44 +74,157 @@ class IndexSheetCreator:
             self.progress_var.set(new)
             time.sleep(self.delay)
 
-    def _get_bank_category(self, bank_name):
-        """Helper that loads the JSON to categorize the bank name for the new column"""
+    # def _get_bank_category(self, bank_name):
+    #     """Helper that loads the JSON to categorize the bank name for the new column"""
+    #
+    #     # AGGRESSIVE CLEANER: Removes ALL spaces, quotes (all types), punctuation, etc.
+    #     def clean_for_match(name):
+    #         if not name: return ""
+    #         # Strip anything that isn't a letter or number
+    #         s = re.sub(r'[\s\-\,\.\(\)\'\"«»“”`]', '', str(name).lower())
+    #         # Normalize common Cyrillic/Latin lookalikes just in case
+    #         return s.translate(str.maketrans('ііїєсхрАТМВНЕО', 'iiiеcxpATMBHEO'))
+    #
+    #     norm_name = clean_for_match(bank_name)
+    #
+    #     if not hasattr(self, '_state_banks_set'):
+    #         self._state_banks_set = set()
+    #         self._foreign_banks_set = set()
+    #         self._private_banks_set = set()
+    #         # try:
+    #         #     if self.banks_file:
+    #         #         with open(self.banks_file, 'r', encoding='utf-8') as f:
+    #         #             cat_data = json.load(f)
+    #         #
+    #         #         # Store aggressively cleaned versions of the JSON names
+    #         #         for b in cat_data.get("groups", {}).get("state_owned_banks", {}).get("banks", []):
+    #         #             self._state_banks_set.add(clean_for_match(b.get("name", "")))
+    #         #         for b in cat_data.get("groups", {}).get("foreign_banking_groups", {}).get("banks", []):
+    #         #             self._foreign_banks_set.add(clean_for_match(b.get("name", "")))
+    #         #         for b in cat_data.get("groups", {}).get("private_capital_banks", {}).get("banks", []):
+    #         #             self._private_banks_set.add(clean_for_match(b.get("name", "")))
+    #         # except Exception as e:
+    #         #     pass
+    #         try:
+    #             if self.banks_file:
+    #                 cat_data = pd.read_excel(self.banks_file, index_col=0)
+    #
+    #                 self._state_banks_set = set(cat_data[cat_data["CLASS"] == "державний"]["NAME"])
+    #                 self._foreign_banks_set = set(cat_data[cat_data["CLASS"] == "іноземний"]["NAME"])
+    #                 self._private_banks_set = set(cat_data[cat_data["CLASS"] == "приватний"]["NAME"])
+    #                 # Store aggressively cleaned versions of the JSON names
+    #                 # for b in cat_data[cat_data["CLASS"] == "державний"]["NAME"]:
+    #                 #     self._state_banks_set.add(clean_for_match(b.("name", "")))
+    #                 # for b in cat_data.get("groups", {}).get("foreign_banking_groups", {}).get("banks", []):
+    #                 #     self._foreign_banks_set.add(clean_for_match(b.get("name", "")))
+    #                 # for b in cat_data.get("groups", {}).get("private_capital_banks", {}).get("banks", []):
+    #                 #     self._private_banks_set.add(clean_for_match(b.get("name", "")))
+    #         except Exception as e:
+    #             pass
+    #
+    #     # Check if the cleaned sheet name is a substring of the cleaned JSON name (or vice versa)
+    #     if norm_name in self._state_banks_set or any(
+    #             s in norm_name or norm_name in s for s in self._state_banks_set if s):
+    #         return "Державні банки"
+    #     if norm_name in self._foreign_banks_set or any(
+    #             f in norm_name or norm_name in f for f in self._foreign_banks_set if f):
+    #         return "Банки з іноземним капіталом"
+    #     if norm_name in self._private_banks_set or any(
+    #             f in norm_name or norm_name in f for f in self._private_banks_set if f):
+    #         return "Банки з українським приватним капіталом"
+    #
+    #     return "—"
 
-        # AGGRESSIVE CLEANER: Removes ALL spaces, quotes (all types), punctuation, etc.
+    def _get_bank_category(self, bank_name):
+        """Helper that loads the XLSX to categorize the bank using its code or name"""
+        import re
+        import pandas as pd
+
+        # 1. Extract numerical bank code if available in the title/string (e.g., "46 ПРИВАТБАНК" -> 46)
+        bank_code = ""
+        match = re.match(r'^\s*(\d+)', str(bank_name))
+        if match:
+            bank_code = match.group(1)
+        print(f"code: {bank_code}, name: {bank_name}")
+
+        # 2. Aggressive string cleaner for fallback matching
         def clean_for_match(name):
             if not name: return ""
-            # Strip anything that isn't a letter or number
-            s = re.sub(r'[\s\-\,\.\(\)\'\"«»“”`]', '', str(name).lower())
-            # Normalize common Cyrillic/Latin lookalikes just in case
+            s = re.sub(r'[\s\-\,\.\(\)\'\"«»“”`—]', '', str(name).lower())
             return s.translate(str.maketrans('ііїєсхрАТМВНЕО', 'iiiеcxpATMBHEO'))
 
         norm_name = clean_for_match(bank_name)
 
-        if not hasattr(self, '_state_banks_set'):
+        # 3. Lazy initialization of the database cache maps
+        if not hasattr(self, '_bank_code_map'):
+            self._bank_code_map = {}  # {nkb_int: class_str}
             self._state_banks_set = set()
             self._foreign_banks_set = set()
+            self._private_banks_set = set()
+
             try:
                 if self.banks_file:
-                    with open(self.banks_file, 'r', encoding='utf-8') as f:
-                        cat_data = json.load(f)
+                    # Load without forcing index columns blindly
+                    cat_data = pd.read_excel(self.banks_file)
 
-                    # Store aggressively cleaned versions of the JSON names
-                    for b in cat_data.get("groups", {}).get("state_owned_banks", {}).get("banks", []):
-                        self._state_banks_set.add(clean_for_match(b.get("name", "")))
-                    for b in cat_data.get("groups", {}).get("foreign_banking_groups", {}).get("banks", []):
-                        self._foreign_banks_set.add(clean_for_match(b.get("name", "")))
+                    # print(cat_data.head(25))
+                    # Normalize column headers to lowercase & strip whitespace
+                    cat_data.columns = cat_data.columns.str.lower().str.strip()
+                    # print(cat_data.columns)
+
+                    if 'class' in cat_data.columns:
+                        # Build Bulletproof Code Map if NKB column exists
+                        if 'nkb' in cat_data.columns:
+                            cat_data['nkb_numeric'] = pd.to_numeric(cat_data['nkb'], errors='coerce')
+                            for _, row in cat_data.dropna(subset=['nkb_numeric']).iterrows():
+                                self._bank_code_map[int(row['nkb_numeric'])] = str(row['class']).strip().lower()
+
+                        # Build Cleaned Text Sets for Fallback Lookup
+                        if 'name' in cat_data.columns:
+                            for _, row in cat_data.iterrows():
+                                cls = str(row['class']).strip().lower()
+                                cleaned_name = clean_for_match(row['name'])
+                                if not cleaned_name: continue
+
+                                if cls == "державний":
+                                    self._state_banks_set.add(cleaned_name)
+                                elif cls == "іноземний":
+                                    self._foreign_banks_set.add(cleaned_name)
+                                elif cls == "приватний":
+                                    self._private_banks_set.add(cleaned_name)
             except Exception as e:
+                print(f"Warning: Failed to cache bank classification Excel: {e}")
+
+        # ===================================================
+        # LOOKUP LAYER 1: Match precisely by numeric NKB code
+        # ===================================================
+        if bank_code:
+            try:
+                target_nkb = int(bank_code)
+                if target_nkb in self._bank_code_map:
+                    mapped_class = self._bank_code_map[target_nkb]
+                    if mapped_class == "державний": return "Державний"
+                    if mapped_class == "іноземний": return "Іноземний капітал"
+                    if mapped_class == "приватний": return "Приватний капітал"
+            except ValueError:
                 pass
 
-        # Check if the cleaned sheet name is a substring of the cleaned JSON name (or vice versa)
+        # ===================================================
+        # LOOKUP LAYER 2: Fallback to aggressive text matching
+        # ===================================================
         if norm_name in self._state_banks_set or any(
                 s in norm_name or norm_name in s for s in self._state_banks_set if s):
-            return "Державні банки"
+            return "Державний"
+
         if norm_name in self._foreign_banks_set or any(
                 f in norm_name or norm_name in f for f in self._foreign_banks_set if f):
-            return "Банки з іноземним капіталом"
+            return "Іноземний капітал"
 
-        return "Банки з українським приватним капіталом"
+        if norm_name in self._private_banks_set or any(
+                p in norm_name or norm_name in p for p in self._private_banks_set if p):
+            return "Приватний капітал"
+
+        return "Інше"
 
     def config(self):
         increment_percent = self.percentage / 4
@@ -243,166 +356,6 @@ class IndexSheetCreator:
         self.index_sheet.freeze_panes = "F6"  # SHIFTED to freeze new category column
         print(f"        ✓ Index Sheet headers formatted")
 
-    # def add_hyperlinks(self):
-    #     print(f"        Setting up hyperlinks...")
-    #     thin_border = Border(
-    #         left=Side(style='thin'), right=Side(style='thin'),
-    #         top=Side(style='thin'), bottom=Side(style='thin')
-    #     )
-    #
-    #     current_row = 6
-    #     index_counter = 1
-    #
-    #     for sheet_name in self.matching_sheets:
-    #         match = re.match(r'^\s*(\d+)', sheet_name)
-    #         number_str = match.group(1) if match else ""
-    #         text_part = sheet_name[match.end():].strip() if match else sheet_name
-    #
-    #         cell_a = self.index_sheet.cell(row=current_row, column=1)
-    #         cell_a.value = number_str
-    #         cell_a.hyperlink = f"#'{sheet_name}'!A1"
-    #         cell_a.font = Font(name='Arial', size=11, color="0000FF", underline="single")
-    #         cell_a.border = thin_border
-    #         cell_a.alignment = Alignment(horizontal='center', vertical='center')
-    #
-    #         cell_b = self.index_sheet.cell(row=current_row, column=2)
-    #         cell_b.value = index_counter
-    #         cell_b.font = Font(name='Arial', size=11)
-    #         cell_b.border = thin_border
-    #         cell_b.alignment = Alignment(horizontal='center', vertical='center')
-    #
-    #         cell_c = self.index_sheet.cell(row=current_row, column=3)
-    #         cell_c.value = text_part
-    #         cell_c.hyperlink = f"#'{sheet_name}'!A1"
-    #         cell_c.font = Font(name='Arial', size=11, color="0000FF", underline="single")
-    #         cell_c.border = thin_border
-    #         cell_c.alignment = Alignment(horizontal='left', vertical='center')
-    #
-    #         # NEW COLUMN D: Category Classification
-    #         category = self._get_bank_category(text_part)
-    #         cell_d = self.index_sheet.cell(row=current_row, column=4)
-    #         cell_d.value = category
-    #         cell_d.font = Font(name='Arial', size=11)
-    #         cell_d.border = thin_border
-    #         cell_d.alignment = Alignment(horizontal='center', vertical='center')
-    #
-    #         # SHIFTED: MFO is now in Column 5
-    #         mfo_value = None
-    #         if "Зміст" in self.workbook.sheetnames and number_str:
-    #             contents = self.workbook["Зміст"]
-    #             for row_idx in range(1, contents.max_row + 1):
-    #                 cell_val = contents.cell(row=row_idx, column=1).value
-    #                 if cell_val is None: continue
-    #                 try:
-    #                     cell_text = str(cell_val).strip()
-    #                     if cell_text == number_str or (cell_text.isdigit() and int(cell_text) == int(number_str)):
-    #                         mfo_value = contents.cell(row=row_idx, column=3).value
-    #                         break
-    #                 except Exception:
-    #                     pass
-    #
-    #         cell_e = self.index_sheet.cell(row=current_row, column=5)
-    #         if mfo_value is not None:
-    #             cell_e.value = str(mfo_value).strip()
-    #             cell_e.hyperlink = f"#'{sheet_name}'!A1"
-    #             cell_e.font = Font(name='Arial', size=11, color="0000FF", underline="single")
-    #         cell_e.border = thin_border
-    #         cell_e.alignment = Alignment(horizontal='center', vertical='center')
-    #
-    #         current_row += 1
-    #         index_counter += 1
-    #
-    #     for row in range(6, current_row):
-    #         self.index_sheet.row_dimensions[row].height = 22
-    #
-    #     print(f"        ✓ Hyperlinks set up for all the {len(self.matching_sheets)} valid bank sheets")
-
-    # def add_hyperlinks(self):
-    #     print(f"        Setting up hyperlinks...")
-    #     thin_border = Border(
-    #         left=Side(style='thin'), right=Side(style='thin'),
-    #         top=Side(style='thin'), bottom=Side(style='thin')
-    #     )
-    #
-    #     current_row = 6
-    #     index_counter = 1
-    #
-    #     for sheet_name in self.matching_sheets:
-    #         number_str = str(code_bank(sheet_name))
-    #         match = re.match(r'^\s*(\d+)', sheet_name)
-    #         if match:
-    #             text_part = sheet_name[match.end():].strip()
-    #         else:
-    #             text_part = sheet_name.replace(number_str, "").strip() or sheet_name
-    #
-    #         cell_a = self.index_sheet.cell(row=current_row, column=1)
-    #         cell_a.value = number_str
-    #         cell_a.hyperlink = f"#'{sheet_name}'!A1"
-    #         # FIX: Force openpyxl to treat this as an internal document link
-    #         cell_a.hyperlink.target = None
-    #         cell_a.hyperlink.location = f"'{sheet_name}'!A1"
-    #         cell_a.font = Font(name='Arial', size=11, color="0000FF", underline="single")
-    #         cell_a.border = thin_border
-    #         cell_a.alignment = Alignment(horizontal='center', vertical='center')
-    #
-    #         cell_b = self.index_sheet.cell(row=current_row, column=2)
-    #         cell_b.value = index_counter
-    #         cell_b.font = Font(name='Arial', size=11)
-    #         cell_b.border = thin_border
-    #         cell_b.alignment = Alignment(horizontal='center', vertical='center')
-    #
-    #         cell_c = self.index_sheet.cell(row=current_row, column=3)
-    #         cell_c.value = text_part
-    #         cell_c.hyperlink = f"#'{sheet_name}'!A1"
-    #         # FIX: Force openpyxl to treat this as an internal document link
-    #         cell_c.hyperlink.target = None
-    #         cell_c.hyperlink.location = f"'{sheet_name}'!A1"
-    #         cell_c.font = Font(name='Arial', size=11, color="0000FF", underline="single")
-    #         cell_c.border = thin_border
-    #         cell_c.alignment = Alignment(horizontal='left', vertical='center')
-    #
-    #         # NEW COLUMN D: Category Classification
-    #         category = self._get_bank_category(text_part)
-    #         cell_d = self.index_sheet.cell(row=current_row, column=4)
-    #         cell_d.value = category
-    #         cell_d.font = Font(name='Arial', size=11)
-    #         cell_d.border = thin_border
-    #         cell_d.alignment = Alignment(horizontal='center', vertical='center')
-    #
-    #         # SHIFTED: MFO is now in Column 5
-    #         mfo_value = None
-    #         if "Зміст" in self.workbook.sheetnames and number_str:
-    #             contents = self.workbook["Зміст"]
-    #             for row_idx in range(1, contents.max_row + 1):
-    #                 cell_val = contents.cell(row=row_idx, column=1).value
-    #                 if cell_val is None: continue
-    #                 try:
-    #                     cell_text = str(cell_val).strip()
-    #                     if cell_text == number_str or (cell_text.isdigit() and int(cell_text) == int(number_str)):
-    #                         mfo_value = contents.cell(row=row_idx, column=3).value
-    #                         break
-    #                 except Exception:
-    #                     pass
-    #
-    #         cell_e = self.index_sheet.cell(row=current_row, column=5)
-    #         if mfo_value is not None:
-    #             cell_e.value = str(mfo_value).strip()
-    #             cell_e.hyperlink = f"#'{sheet_name}'!A1"
-    #             # FIX: Force openpyxl to treat this as an internal document link
-    #             cell_e.hyperlink.target = None
-    #             cell_e.hyperlink.location = f"'{sheet_name}'!A1"
-    #             cell_e.font = Font(name='Arial', size=11, color="0000FF", underline="single")
-    #         cell_e.border = thin_border
-    #         cell_e.alignment = Alignment(horizontal='center', vertical='center')
-    #
-    #         current_row += 1
-    #         index_counter += 1
-    #
-    #     for row in range(6, current_row):
-    #         self.index_sheet.row_dimensions[row].height = 22
-    #
-    #     print(f"        ✓ Hyperlinks set up for all the {len(self.matching_sheets)} valid bank sheets")
-
     def add_hyperlinks(self):
         print(f"        Setting up hyperlinks...")
         thin_border = Border(
@@ -419,6 +372,7 @@ class IndexSheetCreator:
             match = re.match(r'^\s*(\d+)', sheet_name)
             nkb_str = match.group(1) if match else ""
             text_part = sheet_name[match.end():].strip() if match else sheet_name
+            print(f"sheet name: {sheet_name}, match: {match}, nkb: {nkb_str}, text part: {text_part}")
 
             # 2. FILL COLUMN A (NKB)
             cell_a = self.index_sheet.cell(row=current_row, column=1)
@@ -448,7 +402,7 @@ class IndexSheetCreator:
             cell_c.alignment = Alignment(horizontal='left', vertical='center')
 
             # 5. FILL COLUMN D (CATEGORY)
-            category = self._get_bank_category(text_part)
+            category = self._get_bank_category(sheet_name.strip())
             cell_d = self.index_sheet.cell(row=current_row, column=4)
             cell_d.value = category
             cell_d.font = Font(name='Arial', size=11)
@@ -721,25 +675,29 @@ class IndexSheetCreator:
         # -------------------------------------------------------------
         # NEW LOGIC: Reading the Category directly from the newly created Column D
         # -------------------------------------------------------------
-        state_rows, foreign_rows, private_rows = [], [], []
+        state_rows, foreign_rows, private_rows, other_rows = [], [], [], []
 
         for row_idx in range(6, self.data_last_row + 1):
             cat_val = self.index_sheet.cell(row=row_idx, column=4).value
-            if cat_val == "Державні банки":
+            if cat_val == "Державний":
                 state_rows.append(row_idx)
-            elif cat_val == "Банки з іноземним капіталом":
+            elif cat_val == "Іноземний капітал":
                 foreign_rows.append(row_idx)
-            elif cat_val == "Банки з українським приватним капіталом":
+            elif cat_val == "Приватний капітал":
                 private_rows.append(row_idx)
+            else:
+                other_rows.append(row_idx)
 
         state_row = total_row + 1
         foreign_row = total_row + 2
         private_row_total = total_row + 3
+        other_row_total = total_row + 4
 
         category_rows = [
             (state_row, "Державні банки", state_rows),
             (foreign_row, "Банки з іноземним капіталом", foreign_rows),
             (private_row_total, "Банки з українським приватним капіталом", private_rows),
+            (other_row_total, "Інші банки", other_rows)
         ]
 
         def _category_formula(rows_list, col_index):
@@ -752,6 +710,10 @@ class IndexSheetCreator:
             self.index_sheet.cell(row=out_row, column=1).value = category_name
             self.index_sheet.cell(row=out_row, column=1).font = Font(name='Arial', size=10)
             self.index_sheet.cell(row=out_row, column=1).alignment = Alignment(horizontal='left', vertical='center')
+
+            self.index_sheet.cell(row=out_row, column=4).value = f"{len(source_rows)} " + "банк(и/ів)"
+            self.index_sheet.cell(row=out_row, column=4).font = Font(name='Arial', size=10, bold=True)
+            self.index_sheet.cell(row=out_row, column=4).alignment = Alignment(horizontal='center', vertical='center')
 
             for col_idx in non_empty_header_cols:
                 out_cell = self.index_sheet.cell(row=out_row, column=col_idx)
@@ -792,12 +754,13 @@ class IndexSheetCreator:
         middle_col_value = 3
         right_col_name = 8
         right_col_value = 9
-        table_header_row = private_row_total + 2
+        table_header_row = other_row_total + 2
 
         categories = [
             ("Державні банки", state_row),
             ("Банки з іноземним капіталом", foreign_row),
             ("Банки з українським приватним капіталом", private_row_total),
+            ("Інші банки", other_row_total)
         ]
 
         self.index_sheet.cell(row=table_header_row, column=middle_col_name).value = "Категорія"
@@ -825,7 +788,7 @@ class IndexSheetCreator:
                 self.index_sheet.cell(row=out_row, column=right_col_value).value = "=0"
 
         table_cols = [middle_col_name, middle_col_value, right_col_name, right_col_value]
-        for r in range(table_header_row, table_header_row + 4):
+        for r in range(table_header_row, table_header_row + 5):
             for c in table_cols:
                 cell = self.index_sheet.cell(row=r, column=c)
                 cell.border = thin_border
@@ -846,9 +809,9 @@ class IndexSheetCreator:
         print(f"        Creating Index Sheet charts")
 
         middle_cats = Reference(self.index_sheet, min_col=middle_col_name, min_row=table_header_row + 1,
-                                max_row=table_header_row + 3)
+                                max_row=table_header_row + 4)
         middle_vals = Reference(self.index_sheet, min_col=middle_col_value, min_row=table_header_row + 1,
-                                max_row=table_header_row + 3)
+                                max_row=table_header_row + 4)
 
         bar = BarChart()
         bar.type = "col"
@@ -869,9 +832,9 @@ class IndexSheetCreator:
         bar.dataLabels.txPr = _datalabel_text_style(size_pt=13, bold=True, color="FF0000")
 
         right_cats = Reference(self.index_sheet, min_col=right_col_name, min_row=table_header_row + 1,
-                               max_row=table_header_row + 3)
+                               max_row=table_header_row + 4)
         right_vals = Reference(self.index_sheet, min_col=right_col_value, min_row=table_header_row + 1,
-                               max_row=table_header_row + 3)
+                               max_row=table_header_row + 4)
 
         pie_right = PieChart()
         pie_right.title = "Проценти за депозитними сертифікатами\nу розрізі банків, %"
@@ -889,7 +852,7 @@ class IndexSheetCreator:
         pie_right.dataLabels.showLeaderLines = True
         pie_right.dataLabels.txPr = _datalabel_text_style(size_pt=11, bold=True, color="000000")
 
-        chart_top_row = table_header_row + 5
+        chart_top_row = table_header_row + 6
         self.index_sheet.add_chart(bar, f"B{chart_top_row}")
         self.index_sheet.add_chart(pie_right, f"H{chart_top_row}")
 

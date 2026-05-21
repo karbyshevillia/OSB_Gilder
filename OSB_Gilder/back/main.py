@@ -29,6 +29,7 @@ class OSBGilder(Thread):
             time.sleep(self.delay)
 
     def run(self):
+        self.update_progress(5)
         print(f"\n=== STAGE 1: Workbook preparation ===")
         print(f"    Loading workbook from {self.parent_file}")
 
@@ -37,7 +38,7 @@ class OSBGilder(Thread):
             return
 
         self.wb = utils.xl.load_workbook(self.parent_file)
-        self.update_progress(15)
+        self.update_progress(10)
 
         print(f"    Loading read-only workbook from {self.parent_file}")
 
@@ -94,9 +95,9 @@ if __name__ == '__main__':
     rt = ctk.CTk()
     pv = ctk.DoubleVar()
     c = Event()
-    test = OSBGilder("/Users/illiaknu/Desktop/OSB_Gilder/OSB_Gilder/test_chamber/OSB_bank_2026-03-01.xlsx",
+    test = OSBGilder("/Users/illiaknu/Desktop/OSB_Gilder/OSB_Gilder/test_chamber/TEST_03_LIQ.xlsx",
                      progress_var=pv,
                      cancel_event=c,
                      ind_file="/Users/illiaknu/Desktop/OSB_Gilder/OSB_Gilder/back/testing/ind.csv",
-                     banks_file="/Users/illiaknu/Desktop/OSB_Gilder/OSB_Gilder/back/testing/banks.json")
+                     banks_file="/Users/illiaknu/Desktop/OSB_Gilder/OSB_Gilder/back/testing/classification.xlsx")
     test.run()

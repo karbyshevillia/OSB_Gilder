@@ -68,7 +68,7 @@ class IndicatorTablesCreator:
                 sheet=target_sheet_write,
                 # sheet_grid=sheet_values_grid
                 indicators_file=self.ind_file,
-                bank_class_json=self.banks_file
+                bank_class_xlsx=self.banks_file
             )
 
             bs.insert_indicators_frame(

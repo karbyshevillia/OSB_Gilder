@@ -4,11 +4,11 @@ import numpy as np
 import re
 from openpyxl.utils import column_index_from_string, get_column_letter
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
-from indicators_eval import IndicatorsFrameBuilder
-import json
+from .indicators_eval import IndicatorsFrameBuilder
+
 
 class BalanceSheet:
-    def __init__(self, parent_file, indicators_file, sheet, bank_class_json=None):
+    def __init__(self, parent_file, indicators_file, sheet, bank_class_xlsx=None):
         self.parent_file = parent_file
         self.indicators_file = indicators_file
         self.sheet = sheet
@@ -16,15 +16,14 @@ class BalanceSheet:
 
         # 1. High-speed parse to get coordinates
         self.balance_codes_frame = self.parse_to_sane()
-        # print(self.balance_codes_frame.head(5))
 
         # 2. Initialize the builder (We don't build_frame yet, we need the start_coord)
         self.builder = IndicatorsFrameBuilder(indicators_file, self.balance_codes_frame)
         self.indicators_frame = None
 
         self.pivot_db = None
-        if bank_class_json:
-            self.create_db(bank_class_json)
+        if bank_class_xlsx:
+            self.create_db(bank_class_xlsx)
 
     def get_col_letter(self, col_idx):
         string = ""
@@ -296,64 +295,73 @@ class BalanceSheet:
             col_letter = get_column_letter(base_col + i)
             self.sheet.column_dimensions[col_letter].width = adjusted_width
 
-    def create_db(self, classification_json_path):
+    def create_db(self, classification_xlsx_path):
         """
         Creates a flat database frame from the parsed balance codes,
-        appending bank identification from the sheet title and the nested JSON classification file.
+        appending bank identification from the sheet title and the nested Excel classification file.
         Duplicates rows for multiple indicators using .explode().
         """
-        import re  # Ensure re is available if not imported at the top
-
         # 1. Parse Bank Code and Name from Sheet Title
         match = re.match(r'^\s*(\d+)', self.sheet.title)
         bank_code = match.group(1) if match else ""
         bank_name = self.sheet.title[match.end():].strip() if match else self.sheet.title
 
-        # 2. Determine Bank Class from JSON
-        bank_class = "Приватний капітал"  # Default fallback
-        if classification_json_path:
+        # 2. Determine Bank Class from Excel (.xlsx)
+        bank_class = "інше"  # Default fallback matching the new structural labels
+        if classification_xlsx_path:
             try:
-                import json
-                with open(classification_json_path, 'r', encoding='utf-8') as f:
-                    class_data = json.load(f)
+                # Load classification spreadsheet via Pandas
+                class_df = pd.read_excel(classification_xlsx_path)
 
-                # Map the JSON group keys to your standard Ukrainian labels
-                class_mapping = {
-                    "state_owned_banks": "Державний",
-                    "foreign_banking_groups": "Іноземний капітал",
-                    "private_capital_banks": "Приватний капітал"
-                }
+                # Normalize column headers to lowercase & stripped strings to avoid syntax mismatches
+                class_df.columns = class_df.columns.str.lower().str.strip()
 
-                # AGGRESSIVE CLEANER: Removes ALL spaces, quotes (all types), punctuation, etc.
-                def clean_for_match(name):
-                    if not name: return ""
-                    s = re.sub(r'[\s\-\,\.\(\)\'\"«»“”`]', '', str(name).lower())
-                    return s.translate(str.maketrans('ііїєсхрАТМВНЕО', 'iiiеcxpATMBHEO'))
+                if 'nkb' in class_df.columns and 'class' in class_df.columns:
+                    matched_row = None
 
-                # Normalize the bank name from the sheet
-                b_name_clean = clean_for_match(bank_name)
+                    # LAYER 1: Primary lookup matching exact NKB code (Bulletproof)
+                    if bank_code:
+                        try:
+                            target_nkb = int(bank_code)
+                            class_df['nkb_numeric'] = pd.to_numeric(class_df['nkb'], errors='coerce')
+                            match_mask = class_df['nkb_numeric'] == target_nkb
+                            if match_mask.any():
+                                matched_row = class_df[match_mask].iloc[0]
+                        except Exception:
+                            pass
 
-                found = False
-                if "groups" in class_data:
-                    for group_key, group_info in class_data["groups"].items():
-                        target_class = class_mapping.get(group_key, group_key)
+                    # LAYER 2: Secondary text-fallback if NKB code wasn't matched or doesn't exist
+                    if matched_row is None and 'name' in class_df.columns:
+                        def clean_for_match(name):
+                            if not name: return ""
+                            s = re.sub(r'[\s\-\,\.\(\)\'\"«»指標“”`]', '', str(name).lower())
+                            return s.translate(str.maketrans('ііїєсхрАТМВНЕО', 'iiiеcxpATMBHEO'))
 
-                        for bank_obj in group_info.get("banks", []):
-                            # Normalize the bank name from the JSON
-                            json_b_name = clean_for_match(bank_obj.get("name", ""))
+                        b_name_clean = clean_for_match(bank_name)
 
-                            # Flexible match: sheet name is inside JSON name, or JSON name is inside sheet name
-                            if b_name_clean in json_b_name or json_b_name in b_name_clean:
-                                bank_class = target_class
-                                found = True
+                        for _, row in class_df.iterrows():
+                            xlsx_b_name = clean_for_match(row.get("name", ""))
+                            if b_name_clean and xlsx_b_name and (
+                                    b_name_clean in xlsx_b_name or xlsx_b_name in b_name_clean):
+                                matched_row = row
                                 break
-                        if found:
-                            break
+
+                    # Extract the string value from the custom matrix if found
+                    if matched_row is not None:
+                        bank_class = str(matched_row['class']).strip()
+
             except Exception as e:
-                print(f"Warning: Could not load classification JSON ({e}).")
+                print(f"Warning: Could not load classification Excel ({e}).")
 
         # 3. Build the Database Frame
         db_df = self.balance_codes_frame.copy()
+        translation = {"Active": "Активи",
+                       "Passive": "Пасиви",
+                       "Capital": "Капітал",
+                       "Revenue": "Доходи",
+                       "Expenditures": "Витрати"}
+        for k, v in translation.items():
+            db_df.loc[db_df["Kind"] == k, "Kind"] = v
 
         # --- THE EXPLODE LOGIC FOR MANY-TO-MANY INDICATORS ---
         def get_indicators_for_row(idx):
@@ -390,12 +398,12 @@ if __name__ == '__main__':
 
     par_file = "/Users/illiaknu/Desktop/OSB_Gilder/OSB_Gilder/test_chamber/DEBUG_2024_2.xlsx"
     ind_file = "/Users/illiaknu/Desktop/OSB_Gilder/OSB_Gilder/back/testing/ind.csv"
-    banks_file = "/Users/illiaknu/Desktop/OSB_Gilder/OSB_Gilder/back/testing/banks.json"
+    banks_file = "/Users/illiaknu/Desktop/OSB_Gilder/OSB_Gilder/back/testing/classification.xlsx"
 
     wb = xl.load_workbook(par_file)
     sheet = wb.worksheets[0]
 
-    bs = BalanceSheet(par_file, ind_file, sheet, bank_class_json=banks_file)
+    bs = BalanceSheet(par_file, ind_file, sheet, bank_class_xlsx=banks_file)
 
     # Try a notoriously problematic coordinate to test the unmerge feature
     bs.insert_indicators_frame()
