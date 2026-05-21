@@ -31,7 +31,7 @@ jobs:
     # 5. Run your PyInstaller command inside the Poetry environment!
     - name: Build EXE with PyInstaller
       run: |
-        poetry run pyinstaller --name "OSBGilder" --onedir --windowed --icon="icon.icns" --collect-all customtkinter --collect-all tkinterdnd2 --collect-all python_calamine --add-data "icon.icns:." main.py
+        poetry run pyinstaller --name "OSBGilder" --onedir --windowed --icon="icon.icns" --collect-all customtkinter --collect-all tkinterdnd2 --collect-all python_calamine --add-data "icon.icns:." --add-data "ind.csv:." main.py
 
     # 6. Zip up the finished folder and upload it to your GitHub page
     - name: Upload Windows EXE
