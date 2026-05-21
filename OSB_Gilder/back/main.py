@@ -9,11 +9,14 @@ from python_calamine import CalamineWorkbook
 import customtkinter as ctk
 
 class OSBGilder(Thread):
-    def __init__(self, parent_file, progress_var, cancel_event):
+    def __init__(self, parent_file, ind_file, banks_file, progress_var, cancel_event):
         self.start_time = time.perf_counter()
         super().__init__(target=self.run, daemon=True)
         print(f"Initialising OSBGilder object for {parent_file}")
         self.parent_file = parent_file
+        self.ind_file = ind_file
+        self.banks_file = banks_file
+
         self.progress_var = progress_var
         self.delay = 0.01
         self.cancel_event = cancel_event
@@ -51,8 +54,10 @@ class OSBGilder(Thread):
         self.indicator_tables_creator = IndicatorTablesCreator(self.wb,
                                                                self.wb_data,
                                                                self.parent_file,
-                                                               self.progress_var,
-                                                               self.cancel_event)
+                                                               progress_var=self.progress_var,
+                                                               cancel_event=self.cancel_event,
+                                                               ind_file=self.ind_file,
+                                                               banks_file=self.banks_file)
 
         if self.cancel_event.is_set():
             print(f"Aborting modification of {self.parent_file}...")
@@ -89,5 +94,9 @@ if __name__ == '__main__':
     rt = ctk.CTk()
     pv = ctk.DoubleVar()
     c = Event()
-    test = OSBGilder("/Users/illiaknu/Desktop/OSB_Gilder/OSB_Gilder/test_chamber/TEST_singular.xlsx", pv, c)
+    test = OSBGilder("/Users/illiaknu/Desktop/OSB_Gilder/OSB_Gilder/test_chamber/OSB_bank_2026-03-01.xlsx",
+                     progress_var=pv,
+                     cancel_event=c,
+                     ind_file="/Users/illiaknu/Desktop/OSB_Gilder/OSB_Gilder/back/testing/ind.csv",
+                     banks_file="/Users/illiaknu/Desktop/OSB_Gilder/OSB_Gilder/back/testing/banks.json")
     test.run()

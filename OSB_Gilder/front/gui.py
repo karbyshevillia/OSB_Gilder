@@ -361,7 +361,12 @@ class GilderUI(CTkWithDnD):
                 return
 
             shutil.copyfile(self.selected_file_path, file_path)
-            self.worker_thread = OSBGilder(file_path, self.progress_var, self.cancel_event)
+            self.worker_thread = OSBGilder(parent_file=file_path,
+                                           progress_var=self.progress_var,
+                                           cancel_event=self.cancel_event,
+                                           ind_file="/Users/illiaknu/Desktop/OSB_Gilder/OSB_Gilder/back/testing/ind.csv",
+                                           banks_file="/Users/illiaknu/Desktop/OSB_Gilder/OSB_Gilder/back/testing/banks.json"
+                                           )
             self.worker_thread.daemon = True
             self.worker_thread.start()
 

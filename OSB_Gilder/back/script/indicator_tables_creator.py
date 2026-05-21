@@ -4,7 +4,9 @@ import time
 
 
 class IndicatorTablesCreator:
-    def __init__(self, workbook, workbook_data, parent_file, progress_var, cancel_event):
+    def __init__(self, workbook, workbook_data,
+                 parent_file, ind_file, banks_file,
+                 progress_var, cancel_event):
         print(f"\n=== STAGE 2: Indicator Tables Creation ===")
         print(f"    Initialising an IndicatorTablesCreator object")
         self.workbook = workbook
@@ -13,6 +15,9 @@ class IndicatorTablesCreator:
         self.workbook_data = workbook_data
 
         self.parent_file = parent_file
+        self.ind_file = ind_file
+        self.banks_file = banks_file
+
         self.progress_var = progress_var
         self.delay = 0.01
         self.percentage = 55
@@ -52,7 +57,7 @@ class IndicatorTablesCreator:
             # It also automatically strips out formulas and gives you the raw values
             try:
                 calamine_sheet = self.workbook_data.get_sheet_by_name(sheet_name)
-                sheet_values_grid = calamine_sheet.to_python()
+                # sheet_values_grid = calamine_sheet.to_python()
             except KeyError:
                 print(f"        [!] Sheet {sheet_name} not found in data workbook.")
                 continue
@@ -61,13 +66,15 @@ class IndicatorTablesCreator:
             bs = BalanceSheet(
                 parent_file=self.parent_file,
                 sheet=target_sheet_write,
-                sheet_grid=sheet_values_grid
+                # sheet_grid=sheet_values_grid
+                indicators_file=self.ind_file,
+                bank_class_json=self.banks_file
             )
 
-            bs.insert_frame(
-                parent_file=self.parent_file,
-                start_row=bs.start_row,
-                start_col=bs.start_col
+            bs.insert_indicators_frame(
+                # parent_file=self.parent_file,
+                # start_row=bs.start_row,
+                # start_col=bs.start_col
             )
 
             title = code_bank(sheet_name)
