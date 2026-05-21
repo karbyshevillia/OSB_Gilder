@@ -28,7 +28,7 @@ class PivotSheetCreator:
         index_position = self.workbook.sheetnames.index("Indicator_Summary") if "Indicator_Summary" in self.workbook.sheetnames else 0
         pivot_sheet = self.workbook.create_sheet("Pivot_Data", index=index_position + 1)
         print(f"    Generating database")
-        df = pd.concat([bs.pivot_db for bs in self.sheets_dict.values()])
+        df = pd.concat([bs.create_db for bs in self.sheets_dict.values()])
         for row in dataframe_to_rows(df, index=False, header=True):
             pivot_sheet.append(row)
         self.update_progress(increment_percent)

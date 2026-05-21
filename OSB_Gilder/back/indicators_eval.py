@@ -99,8 +99,12 @@ class IndicatorsFrameBuilder:
             # Since 'mask' is a boolean series, we find the indices of True values
             # and map those row indices to the current Indicator ID.
             matched_indices = self.balance_df[mask].index
+            # print(matched_indices)
             for idx in matched_indices:
+                # print(idx)
                 self.code_usage[idx].add(ind_id)
+            print(self.code_usage)
+
 
             # Use actual_alias (which is now 'BT', 'DT', etc.)
             coord_col = f"Coord_{self.ALIAS_MAP[actual_alias]}"

@@ -13,6 +13,7 @@ class BalanceSheet:
         self.indicators_file = indicators_file
         self.sheet = sheet
         self.start_cell_coord = f"G{sheet.max_row + 2}"
+        self.bank_class_xlsx = bank_class_xlsx
 
         # 1. High-speed parse to get coordinates
         self.balance_codes_frame = self.parse_to_sane()
@@ -21,9 +22,9 @@ class BalanceSheet:
         self.builder = IndicatorsFrameBuilder(indicators_file, self.balance_codes_frame)
         self.indicators_frame = None
 
-        self.pivot_db = None
-        if bank_class_xlsx:
-            self.create_db(bank_class_xlsx)
+        # self.pivot_db = None
+        # if bank_class_xlsx:
+        #     self.create_db(bank_class_xlsx)
 
     def get_col_letter(self, col_idx):
         string = ""
@@ -295,7 +296,8 @@ class BalanceSheet:
             col_letter = get_column_letter(base_col + i)
             self.sheet.column_dimensions[col_letter].width = adjusted_width
 
-    def create_db(self, classification_xlsx_path):
+    @property
+    def create_db(self):
         """
         Creates a flat database frame from the parsed balance codes,
         appending bank identification from the sheet title and the nested Excel classification file.
@@ -306,6 +308,7 @@ class BalanceSheet:
         bank_code = match.group(1) if match else ""
         bank_name = self.sheet.title[match.end():].strip() if match else self.sheet.title
 
+        classification_xlsx_path = self.bank_class_xlsx
         # 2. Determine Bank Class from Excel (.xlsx)
         bank_class = "інше"  # Default fallback matching the new structural labels
         if classification_xlsx_path:
@@ -365,11 +368,17 @@ class BalanceSheet:
 
         # --- THE EXPLODE LOGIC FOR MANY-TO-MANY INDICATORS ---
         def get_indicators_for_row(idx):
+            print(self.builder.code_usage)
+            df = self.builder.rules
+            pd.set_option('display.max_columns', None)
+            print(df.head(3))
             used_by = self.builder.code_usage.get(idx, set())
+            print(used_by)
             if not used_by:
                 return ["(без привʼязки)"]
-
-            return [str(i_id) for i_id in sorted(used_by)]
+            # return [str(i_id) for i_id in sorted(used_by)]
+            print([df.loc[df["ID"] == i_id, "NAME"] for i_id in sorted(used_by)])
+            return [str(df.at[int(i_id) - 1, "NAME"]) for i_id in sorted(used_by)] + ["(без привʼязки)"]
 
         # Assign lists to the column and explode
         db_df['indicator'] = db_df.index.map(get_indicators_for_row)
