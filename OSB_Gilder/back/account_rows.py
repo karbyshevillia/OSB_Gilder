@@ -368,16 +368,16 @@ class BalanceSheet:
 
         # --- THE EXPLODE LOGIC FOR MANY-TO-MANY INDICATORS ---
         def get_indicators_for_row(idx):
-            print(self.builder.code_usage)
+            # print(self.builder.code_usage)
             df = self.builder.rules
             pd.set_option('display.max_columns', None)
-            print(df.head(3))
+            # print(df.head(3))
             used_by = self.builder.code_usage.get(idx, set())
-            print(used_by)
+            # print(used_by)
             if not used_by:
                 return ["(без привʼязки)"]
             # return [str(i_id) for i_id in sorted(used_by)]
-            print([df.loc[df["ID"] == i_id, "NAME"] for i_id in sorted(used_by)])
+            # print([df.loc[df["ID"] == i_id, "NAME"] for i_id in sorted(used_by)])
             return [str(df.at[int(i_id) - 1, "NAME"]) for i_id in sorted(used_by)] + ["(без привʼязки)"]
 
         # Assign lists to the column and explode

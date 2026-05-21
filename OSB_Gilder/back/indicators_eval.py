@@ -103,7 +103,7 @@ class IndicatorsFrameBuilder:
             for idx in matched_indices:
                 # print(idx)
                 self.code_usage[idx].add(ind_id)
-            print(self.code_usage)
+
 
 
             # Use actual_alias (which is now 'BT', 'DT', etc.)
