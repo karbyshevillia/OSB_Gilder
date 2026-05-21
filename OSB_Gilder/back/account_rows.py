@@ -1,522 +1,413 @@
 import openpyxl as xl
-from openpyxl.utils import column_index_from_string, get_column_letter
-from openpyxl.cell.cell import Cell
 import pandas as pd
-from .indicators_eval import Indicator, IndicatorKind, LogicalIndicator
-from .script.utils import STATE_BANKS, FOREIGN_BANKS
-
+import numpy as np
 import re
-
-
-class MockCell:
-    """A blazing-fast dummy object that tricks Pandas into thinking it's an openpyxl Cell"""
-    __slots__ = ['value', 'row', 'column']  # __slots__ makes millions of these take zero memory
-
-    def __init__(self, value, row, column):
-        self.value = value
-        self.row = row
-        self.column = column
-
-    @property
-    def column_letter(self):
-        from openpyxl.utils import get_column_letter
-        return get_column_letter(self.column)
-
-class CodedBlock:
-    def __init__(self, code: str, df: pd.DataFrame):
-        self.code = code
-        self.df = df
-
-    def __repr__(self):
-        # return f"CodedBlock(code={self.code!r}, rows={len(self.df)})"
-        return str(self.df)
+from openpyxl.utils import column_index_from_string, get_column_letter
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from .indicators_eval import IndicatorsFrameBuilder
 
 
 class BalanceSheet:
-    PARAMETER_NAMES = ["id", "name", "category",
-                       "debit_total", "debit_nc", "debit_ic",
-                       "credit_total", "credit_nc", "credit_ic",
-                       "balance_total", "balance_nc", "balance_ic"]
-    LOGICAL_COLUMNS = PARAMETER_NAMES[3:]
-    INDICATORS = [LogicalIndicator("Проценти по ОВДП (коди 6120-6122)", IndicatorKind.PRIMARY, "=SUM(():())", 2,
-                                   ("6120", "6122+"),
-                                   ("balance_total", "balance_nc", "balance_ic",),
-                                   ("6120", "6120+", "6121", "6121+", "6122", "6122+")),
-                  LogicalIndicator("Проценти по ДС (коди 6127-6128)", IndicatorKind.PRIMARY, "=SUM(():())", 2,
-                                   ("6127", "6128+"),
-                                   ("balance_total", "balance_nc", "balance_ic",),
-                                   ("6127", "6127+", "6128", "6128+")),
-                  LogicalIndicator("Обсяг ДС дебит (середні, поділено на кількість банк.днів) (код 1430, 1440)",
-                                   IndicatorKind.PRIMARY, "=()+()", 2, ("1430", "1440"),
-                                   ("debit_total", "debit_nc", "debit_ic",),
-                                   ("1430", "1430+", "1440", "1440+")),
-                  LogicalIndicator("Обсяг ДС кредит (середні, поділено на кількість банк.днів) (код 1430, 1440)",
-                                   IndicatorKind.PRIMARY, "=()+()", 2, ("1430", "1440"),
-                                   ("credit_total", "credit_nc", "credit_ic",),
-                                   ("1430", "1430+", "1440", "1440+")),
-                  LogicalIndicator("Кошти в НБУ (кор.рахунок) (кредит) (код 1200)", IndicatorKind.PRIMARY, "=()", 1,
-                                   ("1200",),
-                                   ("credit_total", "credit_nc", "credit_ic",),
-                                   ("1200", "1200+")),
-                  LogicalIndicator("Кошти в НБУ (УСЬОГО) (кредит) (розділ 12)", IndicatorKind.PRIMARY, "=()+()", 2,
-                                   ("1200", "1208"),
-                                   ("credit_total", "credit_nc", "credit_ic",),
-                                   ("1200", "1200+", "1208", "1208+")),
-                  LogicalIndicator("Процентні доходи (коди р.60,р.61)", IndicatorKind.PRIMARY,
-                                   "=()+()+SUM(():())+SUM(():())+SUM(():())+SUM(():())+SUM(():())+SUM(():())+SUM(():())+SUM(():())+SUM(():())+()+()",
-                                   22,
-                                   ("6000", "6000+", "6010", "6015+", "6020", "6027+", "6033", "6035+", "6040", "6041+",
-                                    "6050", "6055+", "6060", "6063+", "6090", "6094+", "6110", "6113+", "6120", "6128+",
-                                    "6141", "6141+"),
-                                   ("balance_total", "balance_nc", "balance_ic",),
-                                   [f"{i}" for i in range(6000, 6200)] + [f"{i}+" for i in range(6000, 6200)]),
-                  LogicalIndicator("Проценти по ДС у % до процентних доходів", IndicatorKind.SECONDARY, "=()/()*100", 2,
-                                   ("Проценти по ДС (коди 6127-6128)", "Процентні доходи (коди р.60,р.61)"),
-                                   ("balance_total", "balance_nc", "balance_ic",), []),
-                  LogicalIndicator("Проценти по ОВДП у % до процентних доходів", IndicatorKind.SECONDARY, "=()/()*100",
-                                   2, ("Проценти по ОВДП (коди 6120-6122)", "Процентні доходи (коди р.60,р.61)"),
-                                   ("balance_total", "balance_nc", "balance_ic",), []),
-                  LogicalIndicator("Проценти по ДС+ОВДП у % до процентних доходів", IndicatorKind.SECONDARY, "=()+()",
-                                   2, ("Проценти по ДС у % до процентних доходів",
-                                       "Проценти по ОВДП у % до процентних доходів"),
-                                   ("balance_total", "balance_nc", "balance_ic",), []),
-                  LogicalIndicator("Проценти за кредитами НК (коди 602, 603, 609)", IndicatorKind.PRIMARY,
-                                   "=SUM(():())+SUM(():())+SUM(():())", 6,
-                                   ("6020", "6027+", "6033", "6035+", "6090", "6094+"),
-                                   ("balance_total", "balance_nc", "balance_ic",),
-                                   [f"602{i}" for i in range(0, 10)] + [f"602{i}+" for i in range(0, 10)]
-                                   + [f"603{i}" for i in range(0, 10)] + [f"603{i}+" for i in range(0, 10)]
-                                   + [f"609{i}" for i in range(0, 10)] + [f"609{i}+" for i in range(0, 10)]),
-                  LogicalIndicator("Проценти за кредитами ДГ (коди 605, 606, 611)", IndicatorKind.PRIMARY,
-                                   "=SUM(():())+SUM(():())+SUM(():())", 6,
-                                   ("6050", "6055+", "6060", "6063+", "6110", "6113+"),
-                                   ("balance_total", "balance_nc", "balance_ic",),
-                                   [f"605{i}" for i in range(0, 10)] + [f"605{i}+" for i in range(0, 10)]
-                                   + [f"606{i}" for i in range(0, 10)] + [f"606{i}+" for i in range(0, 10)]
-                                   + [f"611{i}" for i in range(0, 10)] + [f"611{i}+" for i in range(0, 10)]),
-                  LogicalIndicator("Проценти за кредитами ЗДУ (код 604)", IndicatorKind.PRIMARY, "=SUM(():())", 2,
-                                   ("6040", "6041+"),
-                                   ("balance_total", "balance_nc", "balance_ic",),
-                                   [f"604{i}" for i in range(0, 10)] + [f"604{i}+" for i in range(0, 10)]),
-                  LogicalIndicator("Проценти за поточними вкладами ДГ (код 7040)", IndicatorKind.PRIMARY, "=()+()", 2,
-                                   ("7040", "7040+"),
-                                   ("balance_total", "balance_nc", "balance_ic",),
-                                   ["7040", "7040+"]),
-                  LogicalIndicator("Проценти за строковими вкладами ДГ (код 7041)", IndicatorKind.PRIMARY, "=()+()", 2,
-                                   ("7041", "7041+"),
-                                   ("balance_total", "balance_nc", "balance_ic",),
-                                   ["7041", "7041+"]),
-                  LogicalIndicator("Процентні витрати банків ДГ - всього ", IndicatorKind.SECONDARY, "=()+()", 2, (
-                  "Проценти за поточними вкладами ДГ (код 7040)", "Проценти за строковими вкладами ДГ (код 7041)"),
-                                   ("balance_total", "balance_nc", "balance_ic",), []),
-                  LogicalIndicator("Кредити субʼєктам господарювання (р.20, р.23, 260)", IndicatorKind.PRIMARY,
-                                   "=SUM(():())+SUM(():())+SUM(():())", 6,
-                                   ("2010", "2089+", "2301", "2398+", "2600", "2609+"),
-                                   ("balance_total", "balance_nc", "balance_ic",),
-                                   [f"{i}" for i in range(2000, 2100)] + [f"{i}+" for i in range(2000, 2100)]
-                                   + [f"{i}" for i in range(2300, 2400)] + [f"{i}+" for i in range(2300, 2400)]
-                                   + [f"260{i}" for i in range(0, 10)] + [f"260{i}+" for i in range(0, 10)]),
-                  LogicalIndicator("Кредити ЗДУ (р.21)", IndicatorKind.PRIMARY, "=SUM(():())", 2, ("2103", "2149+"),
-                                   ("balance_total", "balance_nc", "balance_ic",),
-                                   [f"{i}" for i in range(2100, 2200)] + [f"{i}+" for i in range(2100, 2200)]),
-                  LogicalIndicator("Кредити фізичним особам (р. 22, 24, 262)", IndicatorKind.PRIMARY,
-                                   "=SUM(():())+SUM(():())+SUM(():())", 6,
-                                   ("2203", "2249+", "2450", "2458+", "2620", "2629+"),
-                                   ("balance_total", "balance_nc", "balance_ic",),
-                                   [f"{i}" for i in range(2200, 2300)] + [f"{i}+" for i in range(2200, 2300)]
-                                   + [f"{i}" for i in range(2400, 2500)] + [f"{i}+" for i in range(2400, 2500)]
-                                   + [f"262{i}" for i in range(0, 10)] + [f"262{i}+" for i in range(0, 10)]),
-                  LogicalIndicator("Кредити небанківським установам (265)", IndicatorKind.PRIMARY, "=SUM(():())", 2,
-                                   ("2650", "2659+"),
-                                   ("balance_total", "balance_nc", "balance_ic",),
-                                   [f"265{i}+" for i in range(0, 10)] + [f"265{i}+" for i in range(0, 10)]),
-                  LogicalIndicator("Прибуток звітного року (5040)", IndicatorKind.PRIMARY, "=()", 2, ("5040",),
-                                   ("balance_total", "balance_nc", "balance_ic",),
-                                   ["5040", "5040+"]),
-                  LogicalIndicator("Збиток звітного року (5041)", IndicatorKind.PRIMARY, "=()", 2, ("5041",),
-                                   ("balance_total", "balance_nc", "balance_ic",),
-                                   ["5041", "5041+"]),
-                  LogicalIndicator("Податок на прибуток (7900)", IndicatorKind.PRIMARY, "=()+()", 2, ("7900", "7900+",),
-                                   ("balance_total", "balance_nc", "balance_ic",),
-                                   ["7900", "7900+"]),
-                  LogicalIndicator("Інші податки (741)", IndicatorKind.PRIMARY, "=SUM(():())", 2, ("7410", "7419+"),
-                                   ("balance_total", "balance_nc", "balance_ic",),
-                                   [f"741{i}" for i in range(0, 10)] + [f"741{i}+" for i in range(0, 10)]),
-                  LogicalIndicator("Відрахування в резерви (770)", IndicatorKind.PRIMARY, "=SUM(():())", 2,
-                                   ("7700", "7707+"),
-                                   ("balance_total", "balance_nc", "balance_ic",),
-                                   [f"770{i}" for i in range(0, 10)] + [f"770{i}+" for i in range(0, 10)]),
-                  LogicalIndicator("Загальні доходи (6)", IndicatorKind.PRIMARY,
-                                   "=SUM(():())+SUM(():())+SUM(():())+SUM(():())+SUM(():())+SUM(():())+SUM(():())+SUM(():())+SUM(():())+SUM(():())+SUM(():())+SUM(():())+SUM(():())+SUM(():())+SUM(():())+()+()+()+()+()+SUM(():())+SUM(():())+SUM(():())+SUM(():())+()+SUM(():())",
-                                   46,
-                                   ("6000", "6000+", "6010", "6015+", "6020", "6027+", "6033", "6035+",
-                                    "6040", "6041+", "6050", "6055+", "6060", "6063+", "6090", "6094+",
-                                    "6110", "6113+", "6120", "6128+", "6141", "6141+", "6201", "6209+",
-                                    "6214", "6219+", "6223", "6226+", "6300", "6303+", "6320", "6330",
-                                    "6340", "6350", "6360", "6390", "6399+", "6490", "6499+", "6500",
-                                    "6509+", "6510", "6519+", "6520", "6711", "6717+",),
-                                   ("balance_total", "balance_nc", "balance_ic",),
-                                   [f"{i}" for i in range(6000, 7000)] + [f"{i}+" for i in range(6000, 7000)]),
-                  LogicalIndicator("Загальні витрати (7)", IndicatorKind.PRIMARY,
-                                   "=()+SUM(():())+SUM(():())+SUM(():())+SUM(():())+SUM(():())+SUM(():())+SUM(():())+SUM(():())+()+()+()+()+()+SUM(():())+SUM(():())+SUM(():())+SUM(():())+SUM(():())+SUM(():())+SUM(():())+SUM(():())+()+SUM(():())+()",
-                                   42,
-                                   ("7003", "7010", "7017+", "7020", "7028+", "7040", "7048+", "7060",
-                                    "7060+", "7070", "7071+", "7120", "7122+", "7140", "7142+", "7300",
-                                    "7301+", "7320", "7330", "7340", "7350", "7360", "7390", "7399+",
-                                    "7400", "7409+", "7410", "7419+", "7420", "7424+", "7430", "7433+",
-                                    "7450", "7457+", "7490", "7499+", "7500", "7509+", "7520", "7700",
-                                    "7707+", "7900",),
-                                   ("balance_total", "balance_nc", "balance_ic",),
-                                   [f"{i}" for i in range(7000, 8000)] + [f"{i}+" for i in range(7000, 8000)]),
-                  ]
-
-    def __init__(self, parent_file, sheet, sheet_grid=None):
-        self.sheet = sheet
+    def __init__(self, parent_file, indicators_file, sheet, bank_class_xlsx=None):
         self.parent_file = parent_file
+        self.indicators_file = indicators_file
+        self.sheet = sheet
+        self.start_cell_coord = f"G{sheet.max_row + 2}"
 
-        # INSTANT GRID EXTRACTION: Bypasses XML parsing overhead completely
-        self.sheet_grid = sheet_grid if sheet_grid is not None else list(sheet.values)
+        # 1. High-speed parse to get coordinates
+        self.balance_codes_frame = self.parse_to_sane()
 
-        first_occurrence = self.find_first_occurrence("1001")
-        self.coded_blocks = self.extract_coded_blocks(start_row=first_occurrence.row,
-                                                      code_col=first_occurrence.column)
+        # 2. Initialize the builder (We don't build_frame yet, we need the start_coord)
+        self.builder = IndicatorsFrameBuilder(indicators_file, self.balance_codes_frame)
+        self.indicators_frame = None
 
-        # Replace sheet.max_row with len(grid)
-        self.start_row = len(self.sheet_grid) + 3
-        self.start_col = column_index_from_string(self.column_parity["category"])
+        self.pivot_db = None
+        if bank_class_xlsx:
+            self.create_db(bank_class_xlsx)
 
-        self.build_indicator_dataframe(BalanceSheet.INDICATORS,
-                                       BalanceSheet.LOGICAL_COLUMNS,
-                                       self.start_row + 1,
-                                       self.start_col)
-        self.create_pivot_db()
+    def get_col_letter(self, col_idx):
+        string = ""
+        col_idx += 1
+        while col_idx > 0:
+            col_idx, remainder = divmod(col_idx - 1, 26)
+            string = chr(65 + remainder) + string
+        return string
 
-    @property
-    def column_parity(self):
-        sieved = self.account_row_sieve(self.find_first_occurrence("1001"))
-        column_letters = BalanceSheet.column_letters_from_row(sieved)
-        return dict(zip(BalanceSheet.PARAMETER_NAMES, column_letters))
+    def parse_to_sane(self):
+        # 1. Fast Load with Calamine
+        df_raw = pd.read_excel(self.parent_file, sheet_name=self.sheet.title, header=None, dtype=str, engine='calamine')
 
-    def find_first_occurrence(self, target: str):
-        # SEARCHES THE RAW GRID: 1000x faster than sheet.iter_rows()
-        for r_idx, row_vals in enumerate(self.sheet_grid):
-            for c_idx, val in enumerate(row_vals):
-                if val == target:
-                    return MockCell(val, r_idx + 1, c_idx + 1)
-        return None
+        df_raw['Excel_Row'] = df_raw.index + 1
 
-    @staticmethod
-    def contains_id(start_cell):
-        if not start_cell or not start_cell.value:
-            return False
-        val = str(start_cell.value).strip()
-        if len(val) == 4:
-            try:
-                int(val)
-                return True
-            except ValueError:
-                return False
-        return False
+        # 2. Locate the Anchor
+        anchor_mask = df_raw.apply(
+            lambda row: row.astype(str).str.contains('Балансові рахунки', na=False, case=False).any(), axis=1)
+        if anchor_mask.empty:
+            raise ValueError("Could not find data anchor.")
+        data_start_row = anchor_mask.idxmax()
 
-    @staticmethod
-    def is_data_row(row_vals):
-        # We can just check the raw values directly now
-        try:
-            return bool({"А", "П"} & set(str(v).strip() for v in row_vals if v is not None))
-        except:
-            return False
+        # ==========================================
+        # 3. HEADER MERGED-CELL RESOLUTION & MAPPING
+        # ==========================================
+        headers = df_raw.iloc[:data_start_row].copy().astype(str).apply(lambda x: x.str.lower().str.strip())
+        headers.replace({'nan': np.nan, 'none': np.nan, '': np.nan}, inplace=True)
 
-    @staticmethod
-    def column_letters_from_row(cells: list):
-        return [cell.column_letter for cell in cells]
+        for idx, row in headers.iterrows():
+            row_text_blob = " ".join(row.dropna().values)
+            if any(kw in row_text_blob for kw in ['дебет', 'кредит', 'сальдо']):
+                headers.loc[idx] = row.ffill()
 
-    def account_row_sieve(self, start_cell):
-        r_idx = start_cell.row - 1
-        c_idx = start_cell.column - 1
-        start_col_slice = max(0, c_idx - 1)
+        col_mapping = {}
+        col_letters = {}
 
-        row_values = self.sheet_grid[r_idx]
-        account_row_cells = []
+        for col in df_raw.columns:
+            if col == 'Excel_Row': continue
+            text = " ".join(headers[col].dropna().tolist()).replace('i', 'і')  # Normalize i
 
-        # Iterate only through the required columns
-        for i in range(start_col_slice, len(row_values)):
-            val = row_values[i]
-            if val is not None and str(val).strip() != "":
-                account_row_cells.append(MockCell(val, r_idx + 1, i + 1))
+            mapped_name = None
 
-        return account_row_cells
+            # Find all occurrences of our primary keywords in the text
+            primary_matches = re.findall(r'(дебет|кредит|сальдо)', text, re.IGNORECASE)
 
-    def extract_coded_blocks(self, start_row: int, end_row: int | None = None, code_col: int = 1):
-        blocks = {}
-        current_code = None
-        current_rows = []
+            if primary_matches:
+                # Take the very last match found in the string (converted to lowercase for easy checking)
+                last_primary = primary_matches[-1].lower()
 
-        # Convert Excel 1-based indexing to Python 0-based indexing
-        start_idx = start_row - 1
-        end_idx = end_row - 1 if end_row else len(self.sheet_grid)
-        code_c_idx = code_col - 1
+                if last_primary == 'дебет':
+                    if re.search(r'усього', text, re.IGNORECASE):
+                        mapped_name = 'Debit_Total'
+                    elif re.search(r'\bн\.?в\.?\b', text, re.IGNORECASE):
+                        mapped_name = 'Debit_NC'
+                    elif re.search(r'\bі\.?в\.?\b', text, re.IGNORECASE):
+                        mapped_name = 'Debit_IC'
 
-        target_col_indices = []
+                elif last_primary == 'кредит':
+                    if re.search(r'усього', text, re.IGNORECASE):
+                        mapped_name = 'Credit_Total'
+                    elif re.search(r'\bн\.?в\.?\b', text, re.IGNORECASE):
+                        mapped_name = 'Credit_NC'
+                    elif re.search(r'\bі\.?в\.?\b', text, re.IGNORECASE):
+                        mapped_name = 'Credit_IC'
 
-        for r_idx in range(start_idx, end_idx):
-            row_vals = self.sheet_grid[r_idx]
+                elif last_primary == 'сальдо':
+                    if re.search(r'усього', text, re.IGNORECASE):
+                        mapped_name = 'Balance_Total'
+                    elif re.search(r'\bн\.?в\.?\b', text, re.IGNORECASE):
+                        mapped_name = 'Balance_NC'
+                    elif re.search(r'\bі\.?в\.?\b', text, re.IGNORECASE):
+                        mapped_name = 'Balance_IC'
 
-            # Safe access
-            if code_c_idx >= len(row_vals):
-                continue
+            if mapped_name:
+                col_mapping[col] = mapped_name
+                col_letters[mapped_name] = self.get_col_letter(col)
 
-            code_val = row_vals[code_c_idx]
-            code_cell = MockCell(code_val, r_idx + 1, code_col)
+        # ==========================================
+        # 4. DATA BLOCK PROCESSING
+        # ==========================================
+        df_data = df_raw.iloc[data_start_row:].copy()
 
-            if self.contains_id(code_cell):
-                if current_code is not None:
-                    df = pd.DataFrame(current_rows, dtype=object, columns=BalanceSheet.PARAMETER_NAMES)
-                    if current_code not in blocks:
-                        blocks[current_code] = CodedBlock(current_code, df)
-                    else:
-                        appended = pd.concat([blocks[current_code].df, df], ignore_index=True)
-                        blocks[current_code] = CodedBlock(current_code, appended)
+        df_data['Kind'] = pd.Series(np.nan, dtype='object', index=df_data.index)
+        active_pattern = r'^\s*Актив(и|ні)?\s*$'
+        passive_pattern = r'^\s*(Зобов\'язання|Пасив(и|ні)?|Капітал)\s*$'
 
-                sieved = self.account_row_sieve(code_cell)
-                # Map exactly which columns we need to extract for future rows
-                target_col_indices = [cell.column - 1 for cell in sieved]
+        def is_exclusive_header_row(row, pattern):
+            vals = [str(x).strip() for x in row if pd.notna(x) and str(x).strip().lower() not in ('', 'nan', 'none')]
+            text_vals = [v for v in vals if not re.match(r'^-?[\d\s\.,]+$', v)]
+            if not text_vals: return False
+            return all(re.fullmatch(pattern, v, flags=re.IGNORECASE) for v in text_vals)
 
-                current_code = str(code_val).strip()
-                current_rows = [sieved]
+        check_data = df_data.drop(columns=['Excel_Row'])
+        active_mask = check_data.apply(lambda r: is_exclusive_header_row(r, active_pattern), axis=1)
+        passive_mask = check_data.apply(lambda r: is_exclusive_header_row(r, passive_pattern), axis=1)
 
-            else:
-                if (current_code is not None) and self.is_data_row(row_vals):
-                    row_number = r_idx + 1
+        df_data.loc[active_mask, 'Kind'] = 'Active'
+        df_data.loc[passive_mask, 'Kind'] = 'Passive'
+        df_data['Kind'] = df_data['Kind'].ffill()
 
-                    # Generate the row instantly using list comprehension over the grid
-                    new_row = [
-                        MockCell(row_vals[c], row_number, c + 1) if c < len(row_vals)
-                        else MockCell(None, row_number, c + 1)
-                        for c in target_col_indices
-                    ]
-                    current_rows.append(new_row)
+        best_balance_col = None
+        max_purity = 0
+        print(df_data.head())
+        for col in df_data.columns:
+            if col in col_mapping or col in ('Kind', 'Excel_Row'): continue
 
-        # Handle the very last block in the file
-        if current_code is not None and current_rows:
-            df = pd.DataFrame(current_rows, dtype=object, columns=BalanceSheet.PARAMETER_NAMES)
-            if current_code not in blocks:
-                blocks[current_code] = CodedBlock(current_code, df)
-            else:
-                appended = pd.concat([blocks[current_code].df, df], ignore_index=True)
-                blocks[current_code] = CodedBlock(current_code, appended)
+            sample = df_data[col].dropna().astype(str).str.replace(r'\.0$', '', regex=True)
+            sample = sample[sample != 'nan']
+            if sample.empty: continue
 
-        return blocks
+            four_digit_count = sample.str.match(r'^\d{4}$').sum()
+            purity = four_digit_count / len(sample)
 
-    def build_indicator_dataframe(
-            self,
-            indicators,
-            logical_columns,
-            start_row,
-            start_col
-    ):
-        df = pd.DataFrame(
-            index=[f.name for f in indicators],
-            columns=logical_columns,
-            dtype=object,
-        )
+            if purity > max_purity and purity > 0.5:
+                max_purity = purity
+                best_balance_col = col
 
-        indicator_index = {f.name: i for i, f in enumerate(indicators)}
+        if best_balance_col is None:
+            raise ValueError("Could not find the Balance (Account Code) column.")
 
-        for row_idx, indicator in enumerate(indicators):
-            for i, col in enumerate(logical_columns):
-                if col not in indicator.mask:
-                    df.loc[indicator.name, col] = None
-                    continue
-                ind = Indicator(indicator.skeleton)
+        col_mapping[best_balance_col] = 'Balance'
+        col_letters['Balance'] = self.get_col_letter(best_balance_col)
 
-                if indicator.kind is IndicatorKind.PRIMARY:
-                    inputs = []
-                    for code_like in indicator.inputs:
-                        code, aux = code_like[:-1], code_like[-1]
-                        if aux == "+":
-                            row = self.coded_blocks[code].df.iloc[-1, 0].row
-                        else:
-                            code = code_like
-                            row = self.coded_blocks[code].df.iloc[0, 0].row
-                        inputs.append(f"{self.column_parity[col]}{row}")
+        df_data[best_balance_col] = df_data[best_balance_col].astype(str).str.replace(r'\.0$', '', regex=True)
+        df_data[best_balance_col] = df_data[best_balance_col].replace({'nan': np.nan, 'None': np.nan})
+        df_data[best_balance_col] = df_data[best_balance_col].ffill()
 
-                else:  # SECONDARY
-                    # print(start_col, i, get_column_letter(start_col + i))
-                    inputs = [
-                        f"{get_column_letter(start_col + i + 1)}"
-                        f"{start_row + indicator_index[name]}"
-                        for name in indicator.inputs
-                    ]
+        ap_cols = []
+        for col in df_data.columns:
+            if col in col_mapping or col in ('Kind', 'Excel_Row'): continue
+            sample = df_data[col].dropna().astype(str)
+            if sample.str.match(r'^[АПA-P]{1,2}$', flags=re.IGNORECASE).sum() > len(sample) * 0.05:
+                ap_cols.append(col)
 
-                df.loc[indicator.name, col] = ind.render(*inputs)
+        if not ap_cols:
+            raise ValueError("Could not find the Kind_Mark (А/П) column.")
+        col_mapping[ap_cols[0]] = 'Kind_Mark'
+        col_letters['Kind_Mark'] = self.get_col_letter(ap_cols[0])
 
-        self.indicator_frame = df
+        best_name_col = None
+        max_name_len = 0
+        for col in df_data.columns:
+            if col not in col_mapping and col not in ('Kind', 'Excel_Row'):
+                sample = df_data[col].dropna().astype(str)
+                if not sample.empty:
+                    avg_len = sample.str.len().mean()
+                    if avg_len > max_name_len:
+                        max_name_len = avg_len
+                        best_name_col = col
 
-        return
+        if best_name_col is not None:
+            col_mapping[best_name_col] = 'Name'
+            col_letters['Name'] = self.get_col_letter(best_name_col)
 
-    def insert_frame(self, parent_file, start_row, start_col):
-        """Insert indicator frame directly to the sheet using openpyxl (no pandas ExcelWriter)"""
-        from openpyxl.cell.cell import MergedCell
-        from openpyxl.styles import Font, PatternFill, Border, Side
+        df_data.rename(columns=col_mapping, inplace=True)
 
-        # Create DataFrame with actual cells (handle merged cells)
-        def get_actual_cell(cell):
-            if isinstance(cell, MergedCell):
-                for merged_range in self.sheet.merged_cells.ranges:
-                    if cell.coordinate in merged_range:
-                        min_col, min_row, max_col, max_row = merged_range.bounds
-                        return self.sheet.cell(row=min_row, column=min_col)
-            return cell
+        if 'Name' in df_data.columns:
+            df_data['Name'] = df_data['Name'].replace({'nan': np.nan, 'None': np.nan})
+            df_data['Name'] = df_data['Name'].ffill()
 
-        df_cells = pd.DataFrame([[get_actual_cell(self.sheet.cell(i, j))
-                                  for j in range(start_col + 1, start_col + 1 + len(self.indicator_frame.columns))]
-                                 for i in range(start_row + 1, start_row + 1 + len(self.indicator_frame.index))],
-                                index=self.indicator_frame.index,
-                                columns=self.indicator_frame.columns,
-                                dtype=object)
+        # ==========================================
+        # 5. FILTERING AND ASSEMBLY
+        # ==========================================
+        line_items = df_data[
+            df_data['Kind_Mark'].astype(str).str.match(r'^[АПA-P]{1,2}$', na=False, flags=re.IGNORECASE)].copy()
 
-        # Unmerge cells in the target range
-        end_row = start_row + len(self.indicator_frame.index) + 1
-        end_col = start_col + len(self.indicator_frame.columns) + 1
+        line_items['Class'] = line_items['Balance'].str[0]
+        line_items['Division'] = line_items['Balance'].str[:2]
+        line_items['Group'] = line_items['Balance'].str[:3]
 
-        merged_to_remove = []
+        kind_series = line_items['Kind'].copy()
+        kind_series.loc[line_items['Class'] == '5'] = 'Capital'
+        kind_series.loc[line_items['Class'] == '6'] = 'Revenue'
+        kind_series.loc[line_items['Class'] == '7'] = 'Expenditures'
+
+        invalid_class_mask = ~line_items['Class'].isin(['1', '2', '3', '4', '5', '6', '7', '9'])
+        kind_series.loc[invalid_class_mask] = np.nan
+        line_items['Kind'] = kind_series
+        line_items['Kind'] = line_items['Kind'].replace({'nan': np.nan, 'None': np.nan})
+
+        final_cols = [
+            "Kind", "Class", "Division", "Group", "Balance", "Name", "Kind_Mark",
+            "Debit_Total", "Debit_NC", "Debit_IC",
+            "Credit_Total", "Credit_NC", "Credit_IC",
+            "Balance_Total", "Balance_NC", "Balance_IC"
+        ]
+
+        for col in final_cols:
+            if col not in line_items.columns:
+                line_items[col] = np.nan
+
+        coord_cols = []
+        for col in final_cols:
+            if col in col_letters:
+                coord_col_name = f"Coord_{col}"
+                coord_cols.append(coord_col_name)
+                line_items[coord_col_name] = col_letters[col] + line_items['Excel_Row'].astype(str)
+
+        clean_df = line_items[final_cols + coord_cols].copy().dropna(axis=1, how="all")
+
+        for col in final_cols[7:]:
+            clean_df[col] = pd.to_numeric(clean_df[col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+
+        return clean_df
+
+    def insert_indicators_frame(self):
+        # 1. Build the frame USING the target coordinate for proper IND_REF spatial pointers
+        self.indicators_frame = self.builder.build_frame(self.start_cell_coord)
+
+        match = re.match(r"([A-Z]+)(\d+)", self.start_cell_coord)
+        start_col_letter, start_row_num = match.groups()
+        base_col = column_index_from_string(start_col_letter)
+        base_row = int(start_row_num)
+
+        # 2. SAFETY UNMERGE: Prevent read-only crashes
+        rows_to_write = len(self.indicators_frame) + 1
+        cols_to_write = len(self.indicators_frame.columns)
+
+        merged_ranges_to_unmerge = []
         for merged_range in list(self.sheet.merged_cells.ranges):
             min_col, min_row, max_col, max_row = merged_range.bounds
-            if (min_row <= end_row and max_row >= start_row and
-                    min_col <= end_col and max_col >= start_col):
-                merged_to_remove.append(merged_range)
+            # Check for overlap between the target footprint and the merged range
+            if (min_row <= base_row + rows_to_write and max_row >= base_row and
+                    min_col <= base_col + cols_to_write and max_col >= base_col):
+                merged_ranges_to_unmerge.append(str(merged_range))
 
-        for merged_range in merged_to_remove:
-            self.sheet.unmerge_cells(str(merged_range))
+        for m_range in merged_ranges_to_unmerge:
+            self.sheet.unmerge_cells(m_range)
 
-        # Define styles for headers (using openpyxl, not pandas)
-        header_fill = PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid")  # lightgray
-        header_font = Font(bold=True)
-        border = Border(
-            left=Side(style='thin'),
-            right=Side(style='thin'),
-            top=Side(style='thin'),
-            bottom=Side(style='thin')
+        # 3. Define Styles
+        header_fill = PatternFill(start_color="EAEAEA", end_color="EAEAEA", fill_type="solid")
+        header_font = Font(bold=True, name='Calibri')
+
+        thin_border = Border(
+            left=Side(style='thin'), right=Side(style='thin'),
+            top=Side(style='thin'), bottom=Side(style='thin')
         )
 
-        # Write column headers
-        for col_idx, col_name in enumerate(self.indicator_frame.columns):
-            cell = self.sheet.cell(row=start_row, column=start_col + col_idx + 1)
+        center_align = Alignment(horizontal='center', vertical='center')
+        left_align = Alignment(horizontal='left', vertical='center', wrap_text=True)
+
+        # 4. Write & Format Headers
+        for c_idx, col_name in enumerate(self.indicators_frame.columns):
+            cell = self.sheet.cell(row=base_row, column=base_col + c_idx)
             cell.value = col_name
             cell.font = header_font
             cell.fill = header_fill
-            cell.border = border
+            cell.alignment = center_align
+            cell.border = thin_border
 
-        # Write index header
-        index_cell = self.sheet.cell(row=start_row, column=start_col)
-        index_cell.value = "Index"
-        index_cell.font = header_font
-        index_cell.fill = header_fill
-        index_cell.border = border
-
-        # Write data rows directly to the sheet
-        for row_idx, (index_name, row_data) in enumerate(self.indicator_frame.iterrows()):
-            # Alternate background colors
-            row_fill = PatternFill(start_color="D3D3D3", end_color="D3D3D3",
-                                   fill_type="solid") if row_idx % 2 == 0 else None
-
-            # Write index name
-            index_cell = self.sheet.cell(row=start_row + row_idx + 1, column=start_col)
-            index_cell.value = index_name
-            index_cell.border = border
-            if row_fill:
-                index_cell.fill = row_fill
-
-            # Write row data (values)
-            for col_idx, value in enumerate(row_data):
-                cell = self.sheet.cell(row=start_row + row_idx + 1, column=start_col + col_idx + 1)
+        # 5. Write & Format Data
+        data = self.indicators_frame.values
+        for r_idx, row_values in enumerate(data, start=1):
+            for c_idx, value in enumerate(row_values):
+                cell = self.sheet.cell(row=base_row + r_idx, column=base_col + c_idx)
                 cell.value = value
-                cell.border = border
-                if row_fill:
-                    cell.fill = row_fill
+                cell.border = thin_border
 
-        self.indicator_frame_cells = df_cells
+                if c_idx < 2:  # ID and NAME
+                    cell.alignment = left_align
+                else:
+                    cell.alignment = center_align
 
-    def create_pivot_db(self):
-        rows = []
+        # 6. Auto-Adjust Column Widths
+        for i, col_name in enumerate(self.indicators_frame.columns):
+            column_data = self.indicators_frame.iloc[:, i].astype(str)
+            max_length = max(column_data.map(len).max(), len(col_name)) + 2
+            adjusted_width = min(max_length, 50)
+            col_letter = get_column_letter(base_col + i)
+            self.sheet.column_dimensions[col_letter].width = adjusted_width
 
-        for code, block in self.coded_blocks.items():
-            df = block.df
-            for i, (_, row) in enumerate(df.iterrows()):
-
-                # convert row to plain values
-                row_dict = {
-                    k: (v.value if hasattr(v, "value") else v)
-                    for k, v in row.items()
-                }
-
-                row_dict["id"] = code
-                name = df.iloc[0, 1].value
-                row_dict["name"] = name
-
-                base = row_dict.copy()
-                base["indicator"] = "(без привʼязки)"
-                rows.append(base)
-
-                for ind in BalanceSheet.INDICATORS:
-                    if ind.kind == IndicatorKind.PRIMARY:
-                        for c in ind.associated_codes:
-                            target_code = c.rstrip("+")
-                            target_row = 1 if c.endswith("+") else 0
-
-                            if target_code == code and target_row == i:
-                                new_row = row_dict.copy()
-                                new_row["indicator"] = ind.name
-                                rows.append(new_row)
-
-        pivot_db = pd.DataFrame(rows)
-
+    def create_db(self, classification_xlsx_path):
+        """
+        Creates a flat database frame from the parsed balance codes,
+        appending bank identification from the sheet title and the nested Excel classification file.
+        Duplicates rows for multiple indicators using .explode().
+        """
+        # 1. Parse Bank Code and Name from Sheet Title
         match = re.match(r'^\s*(\d+)', self.sheet.title)
-        number_str = match.group(1) if match else ""
-        text_part = self.sheet.title[match.end():].strip() if match else self.sheet.title
+        bank_code = match.group(1) if match else ""
+        bank_name = self.sheet.title[match.end():].strip() if match else self.sheet.title
 
-        def _bank_class(bank_name):
-            b_name = bank_name.lower()
-            if b_name in STATE_BANKS:
-                return "Державний"
-            elif b_name in FOREIGN_BANKS:
-                return "Іноземний капітал"
-            else:
-                return "Приватний капітал"
+        # 2. Determine Bank Class from Excel (.xlsx)
+        bank_class = "інше"  # Default fallback matching the new structural labels
+        if classification_xlsx_path:
+            try:
+                # Load classification spreadsheet via Pandas
+                class_df = pd.read_excel(classification_xlsx_path)
 
-        pivot_db.insert(0, "bank_class", _bank_class(text_part), True)
-        pivot_db.insert(0, "bank_name", text_part, True)
-        pivot_db.insert(0, "bank_code", number_str, True)
+                # Normalize column headers to lowercase & stripped strings to avoid syntax mismatches
+                class_df.columns = class_df.columns.str.lower().str.strip()
 
-        indicator_col = pivot_db.pop("indicator")
-        pivot_db.insert(4, "indicator", indicator_col)  # 4 = desired column position
+                if 'nkb' in class_df.columns and 'class' in class_df.columns:
+                    matched_row = None
 
-        self.pivot_db = pivot_db
+                    # LAYER 1: Primary lookup matching exact NKB code (Bulletproof)
+                    if bank_code:
+                        try:
+                            target_nkb = int(bank_code)
+                            class_df['nkb_numeric'] = pd.to_numeric(class_df['nkb'], errors='coerce')
+                            match_mask = class_df['nkb_numeric'] == target_nkb
+                            if match_mask.any():
+                                matched_row = class_df[match_mask].iloc[0]
+                        except Exception:
+                            pass
+
+                    # LAYER 2: Secondary text-fallback if NKB code wasn't matched or doesn't exist
+                    if matched_row is None and 'name' in class_df.columns:
+                        def clean_for_match(name):
+                            if not name: return ""
+                            s = re.sub(r'[\s\-\,\.\(\)\'\"«»指標“”`]', '', str(name).lower())
+                            return s.translate(str.maketrans('ііїєсхрАТМВНЕО', 'iiiеcxpATMBHEO'))
+
+                        b_name_clean = clean_for_match(bank_name)
+
+                        for _, row in class_df.iterrows():
+                            xlsx_b_name = clean_for_match(row.get("name", ""))
+                            if b_name_clean and xlsx_b_name and (
+                                    b_name_clean in xlsx_b_name or xlsx_b_name in b_name_clean):
+                                matched_row = row
+                                break
+
+                    # Extract the string value from the custom matrix if found
+                    if matched_row is not None:
+                        bank_class = str(matched_row['class']).strip()
+
+            except Exception as e:
+                print(f"Warning: Could not load classification Excel ({e}).")
+
+        # 3. Build the Database Frame
+        db_df = self.balance_codes_frame.copy()
+        translation = {"Active": "Активи",
+                       "Passive": "Пасиви",
+                       "Capital": "Капітал",
+                       "Revenue": "Доходи",
+                       "Expenditures": "Витрати"}
+        for k, v in translation.items():
+            db_df.loc[db_df["Kind"] == k, "Kind"] = v
+
+        # --- THE EXPLODE LOGIC FOR MANY-TO-MANY INDICATORS ---
+        def get_indicators_for_row(idx):
+            used_by = self.builder.code_usage.get(idx, set())
+            if not used_by:
+                return ["(без привʼязки)"]
+
+            return [str(i_id) for i_id in sorted(used_by)]
+
+        # Assign lists to the column and explode
+        db_df['indicator'] = db_df.index.map(get_indicators_for_row)
+        db_df = db_df.explode('indicator', ignore_index=True)
+        # -----------------------------------------------------
+
+        # Insert metadata columns at the front
+        db_df.insert(0, "bank_class", bank_class)
+        db_df.insert(0, "bank_name", bank_name)
+        db_df.insert(0, "bank_code", bank_code)
+
+        # Drop the Excel-specific coordinate columns as they aren't needed in a DB
+        coord_cols = [c for c in db_df.columns if str(c).startswith('Coord_') or c == 'Excel_Row']
+        db_df.drop(columns=coord_cols, inplace=True, errors='ignore')
+
+        # Move indicator to the desired column position (index 4)
+        indicator_col = db_df.pop("indicator")
+        db_df.insert(4, "indicator", indicator_col)
+
+        self.pivot_db = db_df
+        return db_df
 
 
 if __name__ == '__main__':
-    wb = xl.load_workbook("Untitled_2.xlsx")
-    sheet = BalanceSheet(sheet=wb.worksheets[1], parent_file="Untitled_2.xlsx")
-    # start_cell = sheet.find_first_occurrence("1001")
-    # print(start_cell)
-    # # print(sheet.create_account_row(start_cell, show_values=False))
-    # # df = pd.DataFrame(sheet.account_rows)
-    # df = sheet.coded_blocks
-    # pd.set_option("display.max_columns", None)
-    # pd.set_option("display.max_rows", None)
-    # print(df)
-    # # print(sheet.get_account_row_info("1001"))
-    # print(sheet.indicator_frame)
-    # # sheet.insert_frame("../Untitled_1.xlsx")
-    # print(sheet.indicator_frame_cells)
-    # # print(generate_account_rows(sheet))
-    pd.set_option("display.max_columns", None)
-    # pd.set_option("display.max_rows", None)
-    # print(sheet.coded_blocks)
-    print(sheet.coded_blocks["1405"])
-    # print(sheet.sheet_db)
-    print(sheet.pivot_db)
+    pd.set_option('display.max_columns', None)
 
-    # df = pd.DataFrame({"A": [4, 4], "B": [9, 9]})
-    # new_df = df.apply(lambda x: x**0.5)
-    # print(df, new_df)
+    par_file = "/Users/illiaknu/Desktop/OSB_Gilder/OSB_Gilder/test_chamber/DEBUG_2024_2.xlsx"
+    ind_file = "/Users/illiaknu/Desktop/OSB_Gilder/OSB_Gilder/back/testing/ind.csv"
+    banks_file = "/Users/illiaknu/Desktop/OSB_Gilder/OSB_Gilder/back/testing/classification.xlsx"
+
+    wb = xl.load_workbook(par_file)
+    sheet = wb.worksheets[0]
+
+    bs = BalanceSheet(par_file, ind_file, sheet, bank_class_xlsx=banks_file)
+
+    # Try a notoriously problematic coordinate to test the unmerge feature
+    bs.insert_indicators_frame()
+
+    wb.save(par_file)
+    print(bs.pivot_db.head(15))
+    print("Injection Complete!")

@@ -6,13 +6,17 @@ from OSB_Gilder.back.script.index_sheet_creator import IndexSheetCreator
 from OSB_Gilder.back.script.pivot_sheet_creator import PivotSheetCreator
 from OSB_Gilder.back.script.summary_sheet_creator import SummarySheetCreator
 from python_calamine import CalamineWorkbook
+import customtkinter as ctk
 
 class OSBGilder(Thread):
-    def __init__(self, parent_file, progress_var, cancel_event):
+    def __init__(self, parent_file, ind_file, banks_file, progress_var, cancel_event):
         self.start_time = time.perf_counter()
         super().__init__(target=self.run, daemon=True)
         print(f"Initialising OSBGilder object for {parent_file}")
         self.parent_file = parent_file
+        self.ind_file = ind_file
+        self.banks_file = banks_file
+
         self.progress_var = progress_var
         self.delay = 0.01
         self.cancel_event = cancel_event
@@ -25,6 +29,7 @@ class OSBGilder(Thread):
             time.sleep(self.delay)
 
     def run(self):
+        self.update_progress(5)
         print(f"\n=== STAGE 1: Workbook preparation ===")
         print(f"    Loading workbook from {self.parent_file}")
 
@@ -33,7 +38,7 @@ class OSBGilder(Thread):
             return
 
         self.wb = utils.xl.load_workbook(self.parent_file)
-        self.update_progress(15)
+        self.update_progress(10)
 
         print(f"    Loading read-only workbook from {self.parent_file}")
 
@@ -50,8 +55,10 @@ class OSBGilder(Thread):
         self.indicator_tables_creator = IndicatorTablesCreator(self.wb,
                                                                self.wb_data,
                                                                self.parent_file,
-                                                               self.progress_var,
-                                                               self.cancel_event)
+                                                               progress_var=self.progress_var,
+                                                               cancel_event=self.cancel_event,
+                                                               ind_file=self.ind_file,
+                                                               banks_file=self.banks_file)
 
         if self.cancel_event.is_set():
             print(f"Aborting modification of {self.parent_file}...")
@@ -85,5 +92,12 @@ class OSBGilder(Thread):
         print(f"Finished in {(self.finish_time - self.start_time):.2f} second(s)")
 
 if __name__ == '__main__':
-    test = OSBGilder("/Users/illiaknu/Desktop/OSB_Gilder/OSB_Gilder/test_chamber/TEST_singular.xlsx")
+    rt = ctk.CTk()
+    pv = ctk.DoubleVar()
+    c = Event()
+    test = OSBGilder("/Users/illiaknu/Desktop/OSB_Gilder/OSB_Gilder/test_chamber/TEST_03_LIQ.xlsx",
+                     progress_var=pv,
+                     cancel_event=c,
+                     ind_file="/Users/illiaknu/Desktop/OSB_Gilder/OSB_Gilder/back/testing/ind.csv",
+                     banks_file="/Users/illiaknu/Desktop/OSB_Gilder/OSB_Gilder/back/testing/classification.xlsx")
     test.run()
